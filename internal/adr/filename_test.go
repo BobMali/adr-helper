@@ -78,3 +78,44 @@ func TestNextNumber_DirectoryNotFound(t *testing.T) {
 	_, err := adr.NextNumber("/nonexistent/path/to/adrs")
 	assert.Error(t, err)
 }
+
+func TestFindADRFile_FindsExistingFile(t *testing.T) {
+	dir := t.TempDir()
+	require.NoError(t, os.WriteFile(filepath.Join(dir, "0001-use-go.md"), []byte(""), 0o644))
+
+	filename, err := adr.FindADRFile(dir, 1)
+	require.NoError(t, err)
+	assert.Equal(t, "0001-use-go.md", filename)
+}
+
+func TestFindADRFile_FindsAmongMultiple(t *testing.T) {
+	dir := t.TempDir()
+	require.NoError(t, os.WriteFile(filepath.Join(dir, "0001-first.md"), []byte(""), 0o644))
+	require.NoError(t, os.WriteFile(filepath.Join(dir, "0003-third.md"), []byte(""), 0o644))
+	require.NoError(t, os.WriteFile(filepath.Join(dir, "0005-fifth.md"), []byte(""), 0o644))
+
+	filename, err := adr.FindADRFile(dir, 3)
+	require.NoError(t, err)
+	assert.Equal(t, "0003-third.md", filename)
+}
+
+func TestFindADRFile_NotFound_ReturnsError(t *testing.T) {
+	dir := t.TempDir()
+	require.NoError(t, os.WriteFile(filepath.Join(dir, "0001-first.md"), []byte(""), 0o644))
+
+	_, err := adr.FindADRFile(dir, 99)
+	assert.Error(t, err)
+}
+
+func TestFindADRFile_DirectoryNotFound_ReturnsError(t *testing.T) {
+	_, err := adr.FindADRFile("/nonexistent/path", 1)
+	assert.Error(t, err)
+}
+
+func TestFindADRFile_IgnoresTemplate(t *testing.T) {
+	dir := t.TempDir()
+	require.NoError(t, os.WriteFile(filepath.Join(dir, "template.md"), []byte(""), 0o644))
+
+	_, err := adr.FindADRFile(dir, 1)
+	assert.Error(t, err)
+}

@@ -3,6 +3,7 @@ package adr
 import (
 	"fmt"
 	"regexp"
+	"strings"
 )
 
 var (
@@ -30,6 +31,13 @@ func RenderTemplate(content string, record *ADR) string {
 	// Replace Date: and date: lines
 	result = dateUpperPattern.ReplaceAllString(result, "Date: "+dateStr)
 	result = dateLowerPattern.ReplaceAllString(result, "date: "+dateStr)
+
+	// Set default status from the ADR record
+	if hasStatusSection(result) {
+		result = replaceStatusSectionContent(result, record.Status.String())
+	} else if hasFrontmatterStatus(result) {
+		result = replaceFrontmatterStatus(result, strings.ToLower(record.Status.String()))
+	}
 
 	return result
 }

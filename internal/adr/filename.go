@@ -18,6 +18,32 @@ func FormatFilename(number int, title string) (string, error) {
 	return fmt.Sprintf("%04d-%s.md", number, slug), nil
 }
 
+// FindADRFile finds the ADR file with the given number in dir and returns its filename.
+func FindADRFile(dir string, number int) (string, error) {
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		return "", fmt.Errorf("reading directory %q: %w", dir, err)
+	}
+
+	for _, entry := range entries {
+		if entry.IsDir() {
+			continue
+		}
+		matches := adrFilePattern.FindStringSubmatch(entry.Name())
+		if matches == nil {
+			continue
+		}
+		n, err := strconv.Atoi(matches[1])
+		if err != nil {
+			continue
+		}
+		if n == number {
+			return entry.Name(), nil
+		}
+	}
+	return "", fmt.Errorf("ADR %04d not found in %q", number, dir)
+}
+
 // NextNumber scans dir for existing ADR files and returns max+1, or 1 if none found.
 func NextNumber(dir string) (int, error) {
 	entries, err := os.ReadDir(dir)

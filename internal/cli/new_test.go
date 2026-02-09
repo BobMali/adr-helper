@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/malek/adr-helper/internal/adr"
@@ -230,6 +231,254 @@ func TestNewCmd_MissingDirectory_ReturnsError(t *testing.T) {
 
 	err := root.Execute()
 	assert.Error(t, err)
+}
+
+func TestNewCmd_SupersedesFlag_UpdatesSupersededADR(t *testing.T) {
+	tmpDir := chdirTemp(t)
+	initWorkspace(t, tmpDir, "docs/adr", "nygard")
+
+	// Create an existing ADR with nygard format
+	adrContent := "# 1. Use Go\n\nDate: 2024-01-01\n\n## Status\n\nAccepted\n\n## Context\n\nSome context.\n"
+	require.NoError(t, os.WriteFile(filepath.Join(tmpDir, "docs/adr", "0001-use-go.md"), []byte(adrContent), 0o644))
+
+	root := cli.NewRootCmd()
+	root.SetArgs([]string{"new", "--supersedes", "1", "Better Approach"})
+
+	err := root.Execute()
+	require.NoError(t, err)
+
+	// Verify superseded ADR was updated
+	updated, err := os.ReadFile(filepath.Join(tmpDir, "docs/adr", "0001-use-go.md"))
+	require.NoError(t, err)
+	assert.Contains(t, string(updated), "Superseded by [ADR-0002](0002-better-approach.md)")
+	assert.NotContains(t, string(updated), "\nAccepted\n")
+}
+
+func TestNewCmd_SupersedesFlag_AddsReverseLink(t *testing.T) {
+	tmpDir := chdirTemp(t)
+	initWorkspace(t, tmpDir, "docs/adr", "nygard")
+
+	adrContent := "# 1. Use Go\n\nDate: 2024-01-01\n\n## Status\n\nAccepted\n\n## Context\n\nSome context.\n"
+	require.NoError(t, os.WriteFile(filepath.Join(tmpDir, "docs/adr", "0001-use-go.md"), []byte(adrContent), 0o644))
+
+	root := cli.NewRootCmd()
+	root.SetArgs([]string{"new", "-s", "1", "Better Approach"})
+
+	err := root.Execute()
+	require.NoError(t, err)
+
+	// Verify new ADR has Proposed status AND supersedes link
+	newContent, err := os.ReadFile(filepath.Join(tmpDir, "docs/adr", "0002-better-approach.md"))
+	require.NoError(t, err)
+	assert.Contains(t, string(newContent), "Proposed")
+	assert.Contains(t, string(newContent), "Supersedes [ADR-0001](0001-use-go.md)")
+}
+
+func TestNewCmd_SupersedesMultiple(t *testing.T) {
+	tmpDir := chdirTemp(t)
+	initWorkspace(t, tmpDir, "docs/adr", "nygard")
+
+	adr1 := "# 1. First\n\nDate: 2024-01-01\n\n## Status\n\nAccepted\n\n## Context\n\nContext.\n"
+	adr3 := "# 3. Third\n\nDate: 2024-01-01\n\n## Status\n\nAccepted\n\n## Context\n\nContext.\n"
+	require.NoError(t, os.WriteFile(filepath.Join(tmpDir, "docs/adr", "0001-first.md"), []byte(adr1), 0o644))
+	require.NoError(t, os.WriteFile(filepath.Join(tmpDir, "docs/adr", "0003-third.md"), []byte(adr3), 0o644))
+
+	root := cli.NewRootCmd()
+	root.SetArgs([]string{"new", "-s", "1", "-s", "3", "Better"})
+
+	err := root.Execute()
+	require.NoError(t, err)
+
+	// Both superseded ADRs updated
+	updated1, err := os.ReadFile(filepath.Join(tmpDir, "docs/adr", "0001-first.md"))
+	require.NoError(t, err)
+	assert.Contains(t, string(updated1), "Superseded by [ADR-0004](0004-better.md)")
+
+	updated3, err := os.ReadFile(filepath.Join(tmpDir, "docs/adr", "0003-third.md"))
+	require.NoError(t, err)
+	assert.Contains(t, string(updated3), "Superseded by [ADR-0004](0004-better.md)")
+
+	// New ADR has Proposed status AND both reverse links
+	newContent, err := os.ReadFile(filepath.Join(tmpDir, "docs/adr", "0004-better.md"))
+	require.NoError(t, err)
+	assert.Contains(t, string(newContent), "Proposed")
+	assert.Contains(t, string(newContent), "Supersedes [ADR-0001](0001-first.md)")
+	assert.Contains(t, string(newContent), "Supersedes [ADR-0003](0003-third.md)")
+}
+
+func TestNewCmd_SupersedesNonExistentID_ReturnsError(t *testing.T) {
+	tmpDir := chdirTemp(t)
+	initWorkspace(t, tmpDir, "docs/adr", "nygard")
+
+	root := cli.NewRootCmd()
+	root.SetArgs([]string{"new", "-s", "99", "Better"})
+	root.SilenceErrors = true
+	root.SilenceUsage = true
+
+	err := root.Execute()
+	assert.Error(t, err)
+
+	// No new ADR file should have been created
+	entries, _ := os.ReadDir(filepath.Join(tmpDir, "docs/adr"))
+	for _, e := range entries {
+		assert.NotRegexp(t, `^\d{4}-`, e.Name())
+	}
+}
+
+func TestNewCmd_SupersedesMADRFull(t *testing.T) {
+	tmpDir := chdirTemp(t)
+	initWorkspace(t, tmpDir, "docs/adr", "madr-full")
+
+	madrContent := "---\nstatus: \"accepted\"\ndate: 2024-01-01\n---\n\n# 1. Use Go\n\n## Context and Problem Statement\n\nSome context.\n"
+	require.NoError(t, os.WriteFile(filepath.Join(tmpDir, "docs/adr", "0001-use-go.md"), []byte(madrContent), 0o644))
+
+	root := cli.NewRootCmd()
+	root.SetArgs([]string{"new", "-s", "1", "Better"})
+
+	err := root.Execute()
+	require.NoError(t, err)
+
+	// Superseded ADR frontmatter updated
+	updated, err := os.ReadFile(filepath.Join(tmpDir, "docs/adr", "0001-use-go.md"))
+	require.NoError(t, err)
+	assert.Contains(t, string(updated), "status: \"superseded by [ADR-0002](0002-better.md)\"")
+
+	// New ADR has proposed + supersedes in frontmatter
+	newContent, err := os.ReadFile(filepath.Join(tmpDir, "docs/adr", "0002-better.md"))
+	require.NoError(t, err)
+	assert.Contains(t, string(newContent), "status: \"proposed, supersedes [ADR-0001](0001-use-go.md)\"")
+}
+
+func TestNewCmd_SupersedesNoStatusInSupersededADR_ReturnsError(t *testing.T) {
+	tmpDir := chdirTemp(t)
+	initWorkspace(t, tmpDir, "docs/adr", "nygard")
+
+	// ADR without any status format
+	noStatusContent := "# 1. Use Go\n\n## Context\n\nSome context.\n"
+	require.NoError(t, os.WriteFile(filepath.Join(tmpDir, "docs/adr", "0001-use-go.md"), []byte(noStatusContent), 0o644))
+
+	root := cli.NewRootCmd()
+	root.SetArgs([]string{"new", "-s", "1", "Better"})
+	root.SilenceErrors = true
+	root.SilenceUsage = true
+
+	err := root.Execute()
+	assert.Error(t, err)
+}
+
+func TestNewCmd_SupersedesNoStatusInNewADR_ReturnsError(t *testing.T) {
+	tmpDir := chdirTemp(t)
+	initWorkspace(t, tmpDir, "docs/adr", "madr-minimal")
+
+	adrContent := "# 1. First\n\nDate: 2024-01-01\n\n## Status\n\nAccepted\n\n## Context\n\nContext.\n"
+	require.NoError(t, os.WriteFile(filepath.Join(tmpDir, "docs/adr", "0001-first.md"), []byte(adrContent), 0o644))
+
+	root := cli.NewRootCmd()
+	root.SetArgs([]string{"new", "-s", "1", "Better"})
+	root.SilenceErrors = true
+	root.SilenceUsage = true
+
+	err := root.Execute()
+	assert.Error(t, err)
+}
+
+func TestNewCmd_SupersedesMixedFormats(t *testing.T) {
+	tmpDir := chdirTemp(t)
+	initWorkspace(t, tmpDir, "docs/adr", "nygard")
+
+	// Superseded ADR uses MADR full format
+	madrContent := "---\nstatus: \"accepted\"\ndate: 2024-01-01\n---\n\n# 1. Use Go\n\n## Context and Problem Statement\n\nSome context.\n"
+	require.NoError(t, os.WriteFile(filepath.Join(tmpDir, "docs/adr", "0001-use-go.md"), []byte(madrContent), 0o644))
+
+	root := cli.NewRootCmd()
+	root.SetArgs([]string{"new", "-s", "1", "Better"})
+
+	err := root.Execute()
+	require.NoError(t, err)
+
+	// Superseded MADR full ADR updated correctly
+	updated, err := os.ReadFile(filepath.Join(tmpDir, "docs/adr", "0001-use-go.md"))
+	require.NoError(t, err)
+	assert.Contains(t, string(updated), "status: \"superseded by [ADR-0002](0002-better.md)\"")
+
+	// New nygard ADR has Proposed status AND supersedes link
+	newContent, err := os.ReadFile(filepath.Join(tmpDir, "docs/adr", "0002-better.md"))
+	require.NoError(t, err)
+	assert.Contains(t, string(newContent), "Proposed")
+	assert.Contains(t, string(newContent), "Supersedes [ADR-0001](0001-use-go.md)")
+}
+
+func TestNewCmd_SupersedesPrintsMessages(t *testing.T) {
+	tmpDir := chdirTemp(t)
+	initWorkspace(t, tmpDir, "docs/adr", "nygard")
+
+	adrContent := "# 1. Use Go\n\nDate: 2024-01-01\n\n## Status\n\nAccepted\n\n## Context\n\nContext.\n"
+	require.NoError(t, os.WriteFile(filepath.Join(tmpDir, "docs/adr", "0001-use-go.md"), []byte(adrContent), 0o644))
+
+	buf := new(bytes.Buffer)
+	root := cli.NewRootCmd()
+	root.SetOut(buf)
+	root.SetArgs([]string{"new", "-s", "1", "Better"})
+
+	err := root.Execute()
+	require.NoError(t, err)
+
+	output := buf.String()
+	assert.Contains(t, output, "Superseded")
+	assert.Contains(t, output, "0001-use-go.md")
+}
+
+func TestNewCmd_SupersedesDuplicateIDs(t *testing.T) {
+	tmpDir := chdirTemp(t)
+	initWorkspace(t, tmpDir, "docs/adr", "nygard")
+
+	adrContent := "# 1. Use Go\n\nDate: 2024-01-01\n\n## Status\n\nAccepted\n\n## Context\n\nContext.\n"
+	require.NoError(t, os.WriteFile(filepath.Join(tmpDir, "docs/adr", "0001-use-go.md"), []byte(adrContent), 0o644))
+
+	root := cli.NewRootCmd()
+	root.SetArgs([]string{"new", "-s", "1", "-s", "1", "Better"})
+
+	err := root.Execute()
+	require.NoError(t, err)
+
+	// Only one supersedes line in the new ADR, with Proposed status
+	newContent, err := os.ReadFile(filepath.Join(tmpDir, "docs/adr", "0002-better.md"))
+	require.NoError(t, err)
+	assert.Contains(t, string(newContent), "Proposed")
+	assert.Equal(t, 1, strings.Count(string(newContent), "Supersedes [ADR-0001]"))
+}
+
+func TestNewCmd_SupersedesZeroID_ReturnsError(t *testing.T) {
+	tmpDir := chdirTemp(t)
+	initWorkspace(t, tmpDir, "docs/adr", "nygard")
+
+	root := cli.NewRootCmd()
+	root.SetArgs([]string{"new", "-s", "0", "Better"})
+	root.SilenceErrors = true
+	root.SilenceUsage = true
+
+	err := root.Execute()
+	assert.Error(t, err)
+}
+
+func TestNewCmd_SupersedesAlreadySupersededADR(t *testing.T) {
+	tmpDir := chdirTemp(t)
+	initWorkspace(t, tmpDir, "docs/adr", "nygard")
+
+	// ADR already superseded by something else
+	adrContent := "# 1. Use Go\n\nDate: 2024-01-01\n\n## Status\n\nSuperseded by [ADR-0003](0003-old.md)\n\n## Context\n\nContext.\n"
+	require.NoError(t, os.WriteFile(filepath.Join(tmpDir, "docs/adr", "0001-use-go.md"), []byte(adrContent), 0o644))
+
+	root := cli.NewRootCmd()
+	root.SetArgs([]string{"new", "-s", "1", "Better"})
+
+	err := root.Execute()
+	require.NoError(t, err)
+
+	updated, err := os.ReadFile(filepath.Join(tmpDir, "docs/adr", "0001-use-go.md"))
+	require.NoError(t, err)
+	assert.Contains(t, string(updated), "Superseded by [ADR-0002](0002-better.md)")
+	assert.NotContains(t, string(updated), "ADR-0003")
 }
 
 func TestNewCmd_PrintsSuccessMessage(t *testing.T) {
