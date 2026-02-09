@@ -26,6 +26,6 @@ func TestNewRootCmd_HelpContainsExpectedText(t *testing.T) {
 	require.NoError(t, err)
 
 	output := buf.String()
-	assert.Contains(t, output, "adr-cli")
+	assert.Contains(t, output, "adr")
 	assert.Contains(t, output, "Architecture Decision Records")
 }

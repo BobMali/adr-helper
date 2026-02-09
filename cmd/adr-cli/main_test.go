@@ -19,6 +19,6 @@ func TestBinaryHelp(t *testing.T) {
 	output, err := cmd.CombinedOutput()
 	require.NoError(t, err, "help should succeed: %s", output)
 
-	assert.Contains(t, string(output), "adr-cli")
+	assert.Contains(t, string(output), "adr")
 	assert.Contains(t, string(output), "Architecture Decision Records")
 }

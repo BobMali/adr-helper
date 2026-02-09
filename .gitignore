@@ -16,3 +16,9 @@ web/dist/
 *.swp
 *.swo
 *~
+
+# claude
+.claude/agent-memory-local
+
+# tool specific
+.adr.json

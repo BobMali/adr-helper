@@ -9,5 +9,6 @@ func NewRootCmd() *cobra.Command {
 		Short: "A tool for managing Architecture Decision Records",
 		Long:  "adr is a command-line tool for creating and managing Architecture Decision Records (ADRs).",
 	}
+	cmd.AddCommand(NewInitCmd())
 	return cmd
 }
