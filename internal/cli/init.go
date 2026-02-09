@@ -29,16 +29,28 @@ func NewInitCmd() *cobra.Command {
 				return err
 			}
 
+			// Preflight: check for existing files before any writes
+			configPath := filepath.Join(".", adr.ConfigFileName)
+			if _, err := os.Stat(configPath); err == nil && !force {
+				return fmt.Errorf("config already exists at %q, use --force to overwrite", configPath)
+			}
+
+			templatePath := filepath.Join(dir, "template.md")
+			if _, err := os.Stat(templatePath); err == nil && !force {
+				return fmt.Errorf("template already exists at %q, use --force to overwrite", templatePath)
+			}
+
+			// Mutations
 			if err := os.MkdirAll(dir, 0o755); err != nil {
 				return fmt.Errorf("creating directory %q: %w", dir, err)
 			}
 
-			path := filepath.Join(dir, "template.md")
-			if _, err := os.Stat(path); err == nil && !force {
-				return fmt.Errorf("template already exists at %q, use --force to overwrite", path)
-			}
-			if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
+			if err := os.WriteFile(templatePath, []byte(content), 0o644); err != nil {
 				return fmt.Errorf("writing template: %w", err)
+			}
+
+			if err := adr.SaveConfig(".", &adr.Config{Directory: dir, Template: template}); err != nil {
+				return fmt.Errorf("writing config: %w", err)
 			}
 
 			fmt.Fprintf(cmd.OutOrStdout(), "Initialized ADR directory at %s with template: %s\n", dir, template)
