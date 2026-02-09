@@ -20,9 +20,10 @@ var (
 
 // Config represents the ADR project configuration stored in .adr.json.
 type Config struct {
-	Version   string `json:"version"`
-	Directory string `json:"directory"`
-	Template  string `json:"template"`
+	Version      string `json:"version"`
+	Directory    string `json:"directory"`
+	Template     string `json:"template"`
+	TemplateFile string `json:"templateFile"`
 }
 
 // SaveConfig writes the config as indented JSON to dir/.adr.json.
@@ -61,6 +62,9 @@ func LoadConfig(dir string) (*Config, error) {
 	}
 	if cfg.Directory == "" {
 		return nil, fmt.Errorf("directory must not be empty: %w", ErrConfigInvalid)
+	}
+	if cfg.TemplateFile == "" {
+		cfg.TemplateFile = "template.md"
 	}
 
 	return &cfg, nil

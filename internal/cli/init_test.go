@@ -205,6 +205,7 @@ func TestInitCmd_WritesConfigFile(t *testing.T) {
 	assert.Equal(t, adr.ConfigVersion, cfg.Version)
 	assert.Equal(t, dir, cfg.Directory)
 	assert.Equal(t, "nygard", cfg.Template) // default template
+	assert.Equal(t, "template.md", cfg.TemplateFile)
 }
 
 func TestInitCmd_WritesConfigWithCustomTemplate(t *testing.T) {
@@ -279,6 +280,7 @@ func TestInitCmd_ExistingConfig_ForceOverwrites(t *testing.T) {
 	require.NoError(t, json.Unmarshal(data, &cfg))
 	assert.Equal(t, dir, cfg.Directory)
 	assert.Equal(t, "nygard", cfg.Template)
+	assert.Equal(t, "template.md", cfg.TemplateFile)
 }
 
 func TestInitCmd_ExistingBothFiles_ForceOverwritesBoth(t *testing.T) {
@@ -307,4 +309,102 @@ func TestInitCmd_ExistingBothFiles_ForceOverwritesBoth(t *testing.T) {
 	var cfg adr.Config
 	require.NoError(t, json.Unmarshal(data, &cfg))
 	assert.Equal(t, "madr-minimal", cfg.Template)
+	assert.Equal(t, "template.md", cfg.TemplateFile)
+}
+
+// --- Template file flag tests ---
+
+func TestInitCmd_DefaultTemplateFile_SavedToConfig(t *testing.T) {
+	tmpDir := chdirTemp(t)
+	dir := filepath.Join(tmpDir, "adrs")
+
+	root := cli.NewRootCmd()
+	root.SetArgs([]string{"init", dir})
+
+	err := root.Execute()
+	require.NoError(t, err)
+
+	data, err := os.ReadFile(filepath.Join(tmpDir, adr.ConfigFileName))
+	require.NoError(t, err)
+
+	var cfg adr.Config
+	require.NoError(t, json.Unmarshal(data, &cfg))
+	assert.Equal(t, "template.md", cfg.TemplateFile)
+}
+
+func TestInitCmd_CustomTemplateFile_WritesNamedFile(t *testing.T) {
+	tmpDir := chdirTemp(t)
+	dir := filepath.Join(tmpDir, "adrs")
+
+	root := cli.NewRootCmd()
+	root.SetArgs([]string{"init", dir, "--template-file", "custom.md"})
+
+	err := root.Execute()
+	require.NoError(t, err)
+
+	// custom.md should exist with template content
+	content, err := os.ReadFile(filepath.Join(dir, "custom.md"))
+	require.NoError(t, err)
+	assert.Contains(t, string(content), "## Status")
+
+	// template.md should NOT exist
+	_, err = os.Stat(filepath.Join(dir, "template.md"))
+	assert.True(t, os.IsNotExist(err))
+}
+
+func TestInitCmd_CustomTemplateFile_SavedToConfig(t *testing.T) {
+	tmpDir := chdirTemp(t)
+	dir := filepath.Join(tmpDir, "adrs")
+
+	root := cli.NewRootCmd()
+	root.SetArgs([]string{"init", dir, "--template-file", "decisions.md"})
+
+	err := root.Execute()
+	require.NoError(t, err)
+
+	data, err := os.ReadFile(filepath.Join(tmpDir, adr.ConfigFileName))
+	require.NoError(t, err)
+
+	var cfg adr.Config
+	require.NoError(t, json.Unmarshal(data, &cfg))
+	assert.Equal(t, "decisions.md", cfg.TemplateFile)
+}
+
+func TestInitCmd_TemplateFileWithPath_ReturnsError(t *testing.T) {
+	chdirTemp(t)
+
+	root := cli.NewRootCmd()
+	root.SetArgs([]string{"init", "adrs", "--template-file", "../bad.md"})
+	root.SilenceErrors = true
+	root.SilenceUsage = true
+
+	err := root.Execute()
+	assert.Error(t, err)
+	assert.Contains(t, err.Error(), "path separator")
+}
+
+func TestInitCmd_EmptyTemplateFile_ReturnsError(t *testing.T) {
+	chdirTemp(t)
+
+	root := cli.NewRootCmd()
+	root.SetArgs([]string{"init", "adrs", "--template-file", ""})
+	root.SilenceErrors = true
+	root.SilenceUsage = true
+
+	err := root.Execute()
+	assert.Error(t, err)
+	assert.Contains(t, err.Error(), "must not be empty")
+}
+
+func TestInitCmd_TemplateFileNonMdExtension_ReturnsError(t *testing.T) {
+	chdirTemp(t)
+
+	root := cli.NewRootCmd()
+	root.SetArgs([]string{"init", "adrs", "--template-file", "template.txt"})
+	root.SilenceErrors = true
+	root.SilenceUsage = true
+
+	err := root.Execute()
+	assert.Error(t, err)
+	assert.Contains(t, err.Error(), ".md")
 }

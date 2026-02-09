@@ -4,14 +4,30 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 
 	"github.com/malek/adr-helper/internal/adr"
 	"github.com/spf13/cobra"
 )
 
+// validateTemplateFile checks that templateFile is a valid filename for the template.
+func validateTemplateFile(name string) error {
+	if name == "" {
+		return fmt.Errorf("template file name must not be empty")
+	}
+	if strings.ContainsAny(name, `/\`) {
+		return fmt.Errorf("template file name must not contain path separators: %q", name)
+	}
+	if filepath.Ext(name) != ".md" {
+		return fmt.Errorf("template file name must have .md extension: %q", name)
+	}
+	return nil
+}
+
 // NewInitCmd creates the init subcommand for initializing an ADR directory.
 func NewInitCmd() *cobra.Command {
 	var template string
+	var templateFile string
 	var force bool
 
 	cmd := &cobra.Command{
@@ -22,6 +38,10 @@ func NewInitCmd() *cobra.Command {
 			dir := "."
 			if len(args) > 0 {
 				dir = args[0]
+			}
+
+			if err := validateTemplateFile(templateFile); err != nil {
+				return err
 			}
 
 			content, err := adr.TemplateContent(template)
@@ -35,7 +55,7 @@ func NewInitCmd() *cobra.Command {
 				return fmt.Errorf("config already exists at %q, use --force to overwrite", configPath)
 			}
 
-			templatePath := filepath.Join(dir, "template.md")
+			templatePath := filepath.Join(dir, templateFile)
 			if _, err := os.Stat(templatePath); err == nil && !force {
 				return fmt.Errorf("template already exists at %q, use --force to overwrite", templatePath)
 			}
@@ -49,7 +69,12 @@ func NewInitCmd() *cobra.Command {
 				return fmt.Errorf("writing template: %w", err)
 			}
 
-			if err := adr.SaveConfig(".", &adr.Config{Directory: dir, Template: template}); err != nil {
+			cfg := &adr.Config{
+				Directory:    dir,
+				Template:     template,
+				TemplateFile: templateFile,
+			}
+			if err := adr.SaveConfig(".", cfg); err != nil {
 				return fmt.Errorf("writing config: %w", err)
 			}
 
@@ -60,7 +85,9 @@ func NewInitCmd() *cobra.Command {
 
 	cmd.Flags().StringVarP(&template, "template", "t", string(adr.TemplateNygard),
 		fmt.Sprintf("template format (%v)", adr.ValidTemplateNames()))
-	cmd.Flags().BoolVarP(&force, "force", "f", false, "overwrite existing template.md")
+	cmd.Flags().StringVar(&templateFile, "template-file", "template.md",
+		"output filename for the template")
+	cmd.Flags().BoolVarP(&force, "force", "f", false, "overwrite existing files if they exist")
 
 	return cmd
 }
