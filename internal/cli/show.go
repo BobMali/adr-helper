@@ -1,6 +1,7 @@
 package cli
 
 import (
+	"encoding/json"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -10,9 +11,19 @@ import (
 	"github.com/spf13/cobra"
 )
 
+type showJSON struct {
+	Number int    `json:"number"`
+	Title  string `json:"title"`
+	Status string `json:"status"`
+	Date   string `json:"date"`
+	File   string `json:"file"`
+	Body   string `json:"body"`
+}
+
 // NewShowCmd creates the show subcommand for displaying an ADR in the terminal.
 func NewShowCmd() *cobra.Command {
 	var plain bool
+	var jsonOutput bool
 
 	cmd := &cobra.Command{
 		Use:   "show <id>",
@@ -42,6 +53,23 @@ func NewShowCmd() *cobra.Command {
 				return fmt.Errorf("reading ADR: %w", err)
 			}
 
+			if jsonOutput {
+				meta := adr.ExtractMetadata(string(content))
+				number := meta.Number
+				if number == 0 {
+					number = id
+				}
+				out := showJSON{
+					Number: number,
+					Title:  meta.Title,
+					Status: meta.Status,
+					Date:   meta.Date,
+					File:   filename,
+					Body:   string(content),
+				}
+				return json.NewEncoder(cmd.OutOrStdout()).Encode(out)
+			}
+
 			noColor := plain || os.Getenv("NO_COLOR") != ""
 			formatted := FormatADR(string(content), FormatOptions{NoColor: noColor})
 			fmt.Fprint(cmd.OutOrStdout(), formatted)
@@ -50,5 +78,6 @@ func NewShowCmd() *cobra.Command {
 	}
 
 	cmd.Flags().BoolVar(&plain, "plain", false, "disable colored output")
+	cmd.Flags().BoolVar(&jsonOutput, "json", false, "output as JSON")
 	return cmd
 }

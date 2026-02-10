@@ -2,6 +2,7 @@ package cli_test
 
 import (
 	"bytes"
+	"encoding/json"
 	"os"
 	"path/filepath"
 	"testing"
@@ -146,4 +147,112 @@ func TestShowCmd_MADRFullWithFrontmatter(t *testing.T) {
 	assert.Contains(t, buf.String(), "status: \"proposed\"")
 	assert.Contains(t, buf.String(), "1. Use Go")
 	assert.Contains(t, buf.String(), "Some context.")
+}
+
+func TestShowCmd_JSON_OutputsValidJSON(t *testing.T) {
+	tmpDir := chdirTemp(t)
+	initWorkspace(t, tmpDir, "docs/adr", "nygard")
+
+	adrContent := "# 1. Use Go\n\nDate: 2024-01-01\n\n## Status\n\nAccepted\n\n## Context\n\nSome context.\n"
+	require.NoError(t, os.WriteFile(filepath.Join(tmpDir, "docs/adr", "0001-use-go.md"), []byte(adrContent), 0o644))
+
+	buf := new(bytes.Buffer)
+	root := cli.NewRootCmd()
+	root.SetOut(buf)
+	root.SetArgs([]string{"show", "1", "--json"})
+
+	err := root.Execute()
+	require.NoError(t, err)
+
+	var result map[string]interface{}
+	require.NoError(t, json.Unmarshal(buf.Bytes(), &result))
+
+	assert.Equal(t, float64(1), result["number"])
+	assert.Equal(t, "Use Go", result["title"])
+	assert.Equal(t, "Accepted", result["status"])
+	assert.Equal(t, "2024-01-01", result["date"])
+	assert.Equal(t, "0001-use-go.md", result["file"])
+	assert.Contains(t, result["body"], "# 1. Use Go")
+}
+
+func TestShowCmd_JSON_BodyContainsRawMarkdown(t *testing.T) {
+	tmpDir := chdirTemp(t)
+	initWorkspace(t, tmpDir, "docs/adr", "nygard")
+
+	adrContent := "# 1. Use Go\n\nDate: 2024-01-01\n\n## Status\n\nAccepted\n\n## Context\n\nSome context.\n"
+	require.NoError(t, os.WriteFile(filepath.Join(tmpDir, "docs/adr", "0001-use-go.md"), []byte(adrContent), 0o644))
+
+	buf := new(bytes.Buffer)
+	root := cli.NewRootCmd()
+	root.SetOut(buf)
+	root.SetArgs([]string{"show", "1", "--json"})
+
+	err := root.Execute()
+	require.NoError(t, err)
+
+	var result map[string]interface{}
+	require.NoError(t, json.Unmarshal(buf.Bytes(), &result))
+
+	assert.Equal(t, adrContent, result["body"])
+}
+
+func TestShowCmd_JSON_MADRFullFrontmatter(t *testing.T) {
+	tmpDir := chdirTemp(t)
+	initWorkspace(t, tmpDir, "docs/adr", "madr-full")
+
+	adrContent := "---\nstatus: \"proposed\"\ndate: 2024-03-15\n---\n\n# 2. Use Chi Router\n\n## Context and Problem Statement\n\nNeed a router.\n"
+	require.NoError(t, os.WriteFile(filepath.Join(tmpDir, "docs/adr", "0002-use-chi-router.md"), []byte(adrContent), 0o644))
+
+	buf := new(bytes.Buffer)
+	root := cli.NewRootCmd()
+	root.SetOut(buf)
+	root.SetArgs([]string{"show", "2", "--json"})
+
+	err := root.Execute()
+	require.NoError(t, err)
+
+	var result map[string]interface{}
+	require.NoError(t, json.Unmarshal(buf.Bytes(), &result))
+
+	assert.Equal(t, float64(2), result["number"])
+	assert.Equal(t, "Use Chi Router", result["title"])
+	assert.Equal(t, "proposed", result["status"])
+	assert.Equal(t, "2024-03-15", result["date"])
+}
+
+func TestShowCmd_JSON_NoANSIEscapes(t *testing.T) {
+	tmpDir := chdirTemp(t)
+	initWorkspace(t, tmpDir, "docs/adr", "nygard")
+
+	adrContent := "# 1. Use Go\n\nDate: 2024-01-01\n\n## Status\n\nAccepted\n"
+	require.NoError(t, os.WriteFile(filepath.Join(tmpDir, "docs/adr", "0001-use-go.md"), []byte(adrContent), 0o644))
+
+	buf := new(bytes.Buffer)
+	root := cli.NewRootCmd()
+	root.SetOut(buf)
+	root.SetArgs([]string{"show", "1", "--json"})
+
+	err := root.Execute()
+	require.NoError(t, err)
+
+	assert.NotContains(t, buf.String(), "\x1b[")
+}
+
+func TestShowCmd_JSON_TakesPrecedenceOverPlain(t *testing.T) {
+	tmpDir := chdirTemp(t)
+	initWorkspace(t, tmpDir, "docs/adr", "nygard")
+
+	adrContent := "# 1. Use Go\n\nDate: 2024-01-01\n\n## Status\n\nAccepted\n"
+	require.NoError(t, os.WriteFile(filepath.Join(tmpDir, "docs/adr", "0001-use-go.md"), []byte(adrContent), 0o644))
+
+	buf := new(bytes.Buffer)
+	root := cli.NewRootCmd()
+	root.SetOut(buf)
+	root.SetArgs([]string{"show", "1", "--json", "--plain"})
+
+	err := root.Execute()
+	require.NoError(t, err)
+
+	var result map[string]interface{}
+	require.NoError(t, json.Unmarshal(buf.Bytes(), &result), "expected valid JSON when --json and --plain are both set")
 }
