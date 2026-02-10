@@ -1,13 +1,17 @@
 package adr
 
-import "time"
+import (
+	"strings"
+	"time"
+)
 
 // Status represents the lifecycle state of an ADR.
 type Status int
 
 const (
-	Proposed   Status = iota
+	Proposed Status = iota
 	Accepted
+	Rejected
 	Deprecated
 	Superseded
 )
@@ -18,6 +22,8 @@ func (s Status) String() string {
 		return "Proposed"
 	case Accepted:
 		return "Accepted"
+	case Rejected:
+		return "Rejected"
 	case Deprecated:
 		return "Deprecated"
 	case Superseded:
@@ -25,6 +31,21 @@ func (s Status) String() string {
 	default:
 		return "Unknown"
 	}
+}
+
+// AllStatuses returns all valid ADR statuses.
+func AllStatuses() []Status {
+	return []Status{Proposed, Accepted, Rejected, Deprecated, Superseded}
+}
+
+// AllStatusStrings returns all valid status names in lowercase.
+func AllStatusStrings() []string {
+	all := AllStatuses()
+	result := make([]string, len(all))
+	for i, s := range all {
+		result[i] = strings.ToLower(s.String())
+	}
+	return result
 }
 
 // ADR represents an Architecture Decision Record.

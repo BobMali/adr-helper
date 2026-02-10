@@ -8,6 +8,80 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
+func TestUpdateStatus_Nygard(t *testing.T) {
+	content := "# 1. Use Go\n\nDate: 2024-01-01\n\n## Status\n\nProposed\n\n## Context\n\nSome context.\n"
+
+	result, err := adr.UpdateStatus(content, "accepted")
+	require.NoError(t, err)
+	assert.Contains(t, result, "## Status\n\nAccepted\n\n## Context")
+	assert.NotContains(t, result, "Proposed")
+}
+
+func TestUpdateStatus_NygardCaseInsensitive(t *testing.T) {
+	content := "# 1. Use Go\n\n## Status\n\nProposed\n\n## Context\n\nSome context.\n"
+
+	result, err := adr.UpdateStatus(content, "REJECTED")
+	require.NoError(t, err)
+	assert.Contains(t, result, "## Status\n\nRejected\n\n## Context")
+}
+
+func TestUpdateStatus_Frontmatter(t *testing.T) {
+	content := "---\nstatus: \"proposed\"\ndate: 2024-01-01\n---\n\n# 1. Use Go\n\n## Context and Problem Statement\n\nSome context.\n"
+
+	result, err := adr.UpdateStatus(content, "accepted")
+	require.NoError(t, err)
+	assert.Contains(t, result, "status: \"accepted\"")
+	assert.Contains(t, result, "Some context.")
+}
+
+func TestUpdateStatus_NoStatusSection_ReturnsError(t *testing.T) {
+	content := "# 1. Use Go\n\n## Context\n\nSome context.\n"
+
+	_, err := adr.UpdateStatus(content, "accepted")
+	assert.Error(t, err)
+	assert.Contains(t, err.Error(), "no status section found")
+}
+
+func TestUpdateStatus_PreservesOtherSections(t *testing.T) {
+	content := "# 1. Use Go\n\nDate: 2024-01-01\n\n## Status\n\nProposed\n\n## Context\n\nContext text.\n\n## Decision\n\nDecision text.\n\n## Consequences\n\nConsequences text.\n"
+
+	result, err := adr.UpdateStatus(content, "deprecated")
+	require.NoError(t, err)
+	assert.Contains(t, result, "## Status\n\nDeprecated\n\n## Context")
+	assert.Contains(t, result, "## Context\n\nContext text.")
+	assert.Contains(t, result, "## Decision\n\nDecision text.")
+	assert.Contains(t, result, "## Consequences\n\nConsequences text.")
+}
+
+func TestUpdateStatus_NygardPreservesSupersedes(t *testing.T) {
+	content := "# 2. Better\n\nDate: 2024-01-01\n\n## Status\n\nProposed\n\nSupersedes [ADR-0001](0001-old.md)\n\n## Context\n\nSome context.\n"
+
+	result, err := adr.UpdateStatus(content, "accepted")
+	require.NoError(t, err)
+	assert.Contains(t, result, "Accepted")
+	assert.Contains(t, result, "Supersedes [ADR-0001](0001-old.md)")
+	assert.NotContains(t, result, "Proposed")
+}
+
+func TestUpdateStatus_NygardPreservesMultipleSupersedes(t *testing.T) {
+	content := "# 6. Better\n\nDate: 2024-01-01\n\n## Status\n\nProposed\n\nSupersedes [ADR-0001](0001-first.md)\nSupersedes [ADR-0003](0003-third.md)\n\n## Context\n\nSome context.\n"
+
+	result, err := adr.UpdateStatus(content, "accepted")
+	require.NoError(t, err)
+	assert.Contains(t, result, "Accepted")
+	assert.Contains(t, result, "Supersedes [ADR-0001](0001-first.md)")
+	assert.Contains(t, result, "Supersedes [ADR-0003](0003-third.md)")
+	assert.NotContains(t, result, "Proposed")
+}
+
+func TestUpdateStatus_FrontmatterPreservesSupersedes(t *testing.T) {
+	content := "---\nstatus: \"proposed, supersedes [ADR-0001](0001-first.md)\"\ndate: 2024-01-01\n---\n\n# 2. Better\n\n## Context and Problem Statement\n\nSome context.\n"
+
+	result, err := adr.UpdateStatus(content, "accepted")
+	require.NoError(t, err)
+	assert.Contains(t, result, `status: "accepted, supersedes [ADR-0001](0001-first.md)"`)
+}
+
 func TestSetSupersededBy_NygardFormat(t *testing.T) {
 	content := "# 1. Use Go\n\nDate: 2024-01-01\n\n## Status\n\nAccepted\n\n## Context\n\nSome context.\n"
 	link := adr.SupersedesLink{Number: 6, Filename: "0006-new.md"}

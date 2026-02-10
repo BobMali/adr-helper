@@ -31,6 +31,7 @@ func TestStatusString(t *testing.T) {
 		{adr.Proposed, "Proposed"},
 		{adr.Accepted, "Accepted"},
 		{adr.Deprecated, "Deprecated"},
+		{adr.Rejected, "Rejected"},
 		{adr.Superseded, "Superseded"},
 		{adr.Status(999), "Unknown"},
 	}
@@ -42,12 +43,18 @@ func TestStatusString(t *testing.T) {
 	}
 }
 
+func TestAllStatusStrings(t *testing.T) {
+	got := adr.AllStatusStrings()
+	expected := []string{"proposed", "accepted", "rejected", "deprecated", "superseded"}
+	assert.Equal(t, expected, got)
+}
+
 // Compile-time interface check
 var _ adr.Repository = (*mockRepo)(nil)
 
 type mockRepo struct{}
 
-func (m *mockRepo) List(_ context.Context) ([]adr.ADR, error)        { return nil, nil }
-func (m *mockRepo) Get(_ context.Context, _ int) (*adr.ADR, error)   { return nil, nil }
-func (m *mockRepo) Save(_ context.Context, _ *adr.ADR) error         { return nil }
-func (m *mockRepo) NextNumber(_ context.Context) (int, error)        { return 0, nil }
+func (m *mockRepo) List(_ context.Context) ([]adr.ADR, error)      { return nil, nil }
+func (m *mockRepo) Get(_ context.Context, _ int) (*adr.ADR, error) { return nil, nil }
+func (m *mockRepo) Save(_ context.Context, _ *adr.ADR) error       { return nil }
+func (m *mockRepo) NextNumber(_ context.Context) (int, error)      { return 0, nil }

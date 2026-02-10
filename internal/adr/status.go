@@ -96,6 +96,30 @@ func replaceFrontmatterStatus(content, newValue string) string {
 	return "---" + newFrontmatter + afterFrontmatter
 }
 
+// UpdateStatus replaces the status in an ADR's content.
+// Handles both nygard (## Status section) and MADR-full (frontmatter status:) formats.
+// Returns an error if no status section is found.
+func UpdateStatus(content, newStatus string) (string, error) {
+	normalized := strings.ToLower(newStatus)
+	if hasStatusSection(content) {
+		titled := strings.ToUpper(normalized[:1]) + normalized[1:]
+		existing := extractStatusSectionContent(content)
+		if idx := strings.Index(existing, "\n\n"); idx >= 0 {
+			// Preserve content after the status line (supersedes links, etc.)
+			titled = titled + existing[idx:]
+		}
+		return replaceStatusSectionContent(content, titled), nil
+	}
+	if hasFrontmatterStatus(content) {
+		currentValue := getFrontmatterStatusValue(content)
+		if idx := strings.Index(currentValue, ", supersedes "); idx >= 0 {
+			normalized = normalized + currentValue[idx:]
+		}
+		return replaceFrontmatterStatus(content, normalized), nil
+	}
+	return "", fmt.Errorf("no status section found")
+}
+
 // extractStatusSectionContent returns the text between ## Status heading and the next ## heading (or EOF).
 // Returns empty string if the section has no content.
 func extractStatusSectionContent(content string) string {
