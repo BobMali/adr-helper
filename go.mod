@@ -1,4 +1,4 @@
-module github.com/malek/adr-helper
+module github.com/BobMali/adr-helper
 
 go 1.25.5
 

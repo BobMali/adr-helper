@@ -1,8 +1,10 @@
 package adr
 
 import (
+	"fmt"
 	"regexp"
 	"strings"
+	"time"
 )
 
 // Metadata holds parsed metadata extracted from an ADR's raw markdown content.
@@ -54,6 +56,56 @@ func ExtractMetadata(content string) Metadata {
 	}
 
 	return m
+}
+
+// MetadataToADR converts raw Metadata strings into a typed ADR.
+// Uses fallbackNumber when m.Number is 0 (e.g. MADR-style headings without number prefix).
+// Returns error on invalid status; zero time.Time if date can't be parsed.
+func MetadataToADR(m Metadata, fallbackNumber int) (ADR, error) {
+	number := m.Number
+	if number == 0 {
+		number = fallbackNumber
+	}
+
+	var status Status
+	// Extract first non-empty line for status parsing.
+	// Status sections may contain additional lines (e.g. "Supersedes ..." references).
+	statusLine := firstNonEmptyLine(m.Status)
+	if statusLine == "" {
+		status = Proposed
+	} else {
+		var ok bool
+		status, ok = ParseStatus(statusLine)
+		if !ok {
+			return ADR{}, fmt.Errorf("invalid status %q", m.Status)
+		}
+	}
+
+	var date time.Time
+	if m.Date != "" {
+		parsed, err := time.Parse("2006-01-02", m.Date)
+		if err == nil {
+			date = parsed
+		}
+	}
+
+	return ADR{
+		Number: number,
+		Title:  m.Title,
+		Status: status,
+		Date:   date,
+	}, nil
+}
+
+// firstNonEmptyLine returns the first non-blank line from s, trimmed.
+func firstNonEmptyLine(s string) string {
+	for _, line := range strings.Split(s, "\n") {
+		t := strings.TrimSpace(line)
+		if t != "" {
+			return t
+		}
+	}
+	return ""
 }
 
 // bodyAfterFrontmatter returns content after the YAML frontmatter block,

@@ -3,7 +3,7 @@ package adr_test
 import (
 	"testing"
 
-	"github.com/malek/adr-helper/internal/adr"
+	"github.com/BobMali/adr-helper/internal/adr"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )

@@ -7,7 +7,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/malek/adr-helper/internal/cli"
+	"github.com/BobMali/adr-helper/internal/cli"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )

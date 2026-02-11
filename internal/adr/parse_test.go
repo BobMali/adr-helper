@@ -2,8 +2,10 @@ package adr
 
 import (
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 func TestExtractMetadata_Nygard(t *testing.T) {
@@ -87,4 +89,74 @@ func TestExtractMetadata_DateInBody_PreferredOverFrontmatter(t *testing.T) {
 	meta := ExtractMetadata(content)
 
 	assert.Equal(t, "2024-06-15", meta.Date)
+}
+
+func TestMetadataToADR_ValidMetadata(t *testing.T) {
+	m := Metadata{Number: 1, Title: "Use Go", Status: "Accepted", Date: "2024-01-15"}
+
+	got, err := MetadataToADR(m, 0)
+
+	require.NoError(t, err)
+	assert.Equal(t, 1, got.Number)
+	assert.Equal(t, "Use Go", got.Title)
+	assert.Equal(t, Accepted, got.Status)
+	assert.Equal(t, time.Date(2024, 1, 15, 0, 0, 0, 0, time.UTC), got.Date)
+}
+
+func TestMetadataToADR_UseFallbackNumber(t *testing.T) {
+	m := Metadata{Number: 0, Title: "Some Title", Status: "Proposed", Date: "2024-02-01"}
+
+	got, err := MetadataToADR(m, 5)
+
+	require.NoError(t, err)
+	assert.Equal(t, 5, got.Number)
+}
+
+func TestMetadataToADR_InvalidStatus(t *testing.T) {
+	m := Metadata{Number: 1, Title: "Bad Status", Status: "bogus", Date: "2024-01-01"}
+
+	_, err := MetadataToADR(m, 0)
+
+	assert.Error(t, err)
+	assert.Contains(t, err.Error(), "invalid status")
+}
+
+func TestMetadataToADR_EmptyDate(t *testing.T) {
+	m := Metadata{Number: 1, Title: "No Date", Status: "Accepted", Date: ""}
+
+	got, err := MetadataToADR(m, 0)
+
+	require.NoError(t, err)
+	assert.True(t, got.Date.IsZero())
+}
+
+func TestMetadataToADR_SupersededByPrefix(t *testing.T) {
+	m := Metadata{Number: 4, Title: "Old", Status: "Superseded by [ADR-0005](0005-foo.md)", Date: "2024-01-01"}
+
+	got, err := MetadataToADR(m, 0)
+
+	require.NoError(t, err)
+	assert.Equal(t, Superseded, got.Status)
+}
+
+func TestMetadataToADR_MultiLineStatusSection(t *testing.T) {
+	m := Metadata{
+		Number: 5,
+		Title:  "test5",
+		Status: "Proposed\n\nSupersedes [ADR-0003](0003-test3.md)\nSupersedes [ADR-0004](0004-test4.md)",
+		Date:   "2026-02-11",
+	}
+	got, err := MetadataToADR(m, 0)
+	require.NoError(t, err)
+	assert.Equal(t, Proposed, got.Status)
+	assert.Equal(t, 5, got.Number)
+}
+
+func TestMetadataToADR_EmptyStatus(t *testing.T) {
+	m := Metadata{Number: 1, Title: "No Status", Status: "", Date: "2024-01-01"}
+
+	got, err := MetadataToADR(m, 0)
+
+	require.NoError(t, err)
+	assert.Equal(t, Proposed, got.Status)
 }

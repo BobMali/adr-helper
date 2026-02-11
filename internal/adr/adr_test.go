@@ -2,10 +2,11 @@ package adr_test
 
 import (
 	"context"
+	"encoding/json"
 	"testing"
 	"time"
 
-	"github.com/malek/adr-helper/internal/adr"
+	"github.com/BobMali/adr-helper/internal/adr"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -92,6 +93,27 @@ func TestParseStatus(t *testing.T) {
 			if tt.ok {
 				assert.Equal(t, tt.expected, status)
 			}
+		})
+	}
+}
+
+func TestStatusMarshalJSON(t *testing.T) {
+	tests := []struct {
+		status   adr.Status
+		expected string
+	}{
+		{adr.Proposed, `"Proposed"`},
+		{adr.Accepted, `"Accepted"`},
+		{adr.Rejected, `"Rejected"`},
+		{adr.Deprecated, `"Deprecated"`},
+		{adr.Superseded, `"Superseded"`},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.expected, func(t *testing.T) {
+			data, err := json.Marshal(tt.status)
+			require.NoError(t, err)
+			assert.Equal(t, tt.expected, string(data))
 		})
 	}
 }

@@ -5,7 +5,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/malek/adr-helper/internal/adr"
+	"github.com/BobMali/adr-helper/internal/adr"
 	"github.com/stretchr/testify/assert"
 )
 

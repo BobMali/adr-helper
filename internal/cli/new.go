@@ -6,7 +6,7 @@ import (
 	"path/filepath"
 	"sort"
 
-	"github.com/malek/adr-helper/internal/adr"
+	"github.com/BobMali/adr-helper/internal/adr"
 	"github.com/spf13/cobra"
 )
 

@@ -4,8 +4,8 @@ import (
 	"regexp"
 	"strings"
 
+	"github.com/BobMali/adr-helper/internal/adr"
 	"github.com/fatih/color"
-	"github.com/malek/adr-helper/internal/adr"
 )
 
 // FormatOptions controls how FormatADR renders content.

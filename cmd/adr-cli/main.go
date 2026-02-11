@@ -4,7 +4,7 @@ import (
 	"fmt"
 	"os"
 
-	"github.com/malek/adr-helper/internal/cli"
+	"github.com/BobMali/adr-helper/internal/cli"
 )
 
 func main() {

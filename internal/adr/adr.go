@@ -1,6 +1,7 @@
 package adr
 
 import (
+	"encoding/json"
 	"strings"
 	"time"
 )
@@ -31,6 +32,11 @@ func (s Status) String() string {
 	default:
 		return "Unknown"
 	}
+}
+
+// MarshalJSON encodes Status as a JSON string (e.g. "Accepted").
+func (s Status) MarshalJSON() ([]byte, error) {
+	return json.Marshal(s.String())
 }
 
 // AllStatuses returns all valid ADR statuses.

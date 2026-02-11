@@ -1,12 +1,15 @@
-.PHONY: build build-cli build-web test test-verbose test-cover vet clean
+.PHONY: build build-cli build-web build-frontend test test-verbose test-cover vet clean
 
 build: build-cli build-web
 
 build-cli:
 	go build -o bin/adr ./cmd/adr-cli
 
-build-web:
-	go build -o bin/adr-web ./cmd/adr-web
+build-frontend:
+	cd web && npm ci && npm run build
+
+build-web: build-frontend
+	go build -tags embed -o bin/adr-web ./cmd/adr-web
 
 test:
 	go test ./...
