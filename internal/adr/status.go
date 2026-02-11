@@ -176,13 +176,14 @@ func getFrontmatterStatusValue(content string) string {
 
 // SetSupersededBy updates the content's status to "Superseded by [ADR-N](filename)".
 func SetSupersededBy(content string, link SupersedesLink) (string, error) {
-	statusText := "Superseded by " + formatLink(link)
+	// Markdown needs two spaces at the end to display new line
+	statusText := "Superseded by " + formatLink(link) + "  "
 
 	if hasStatusSection(content) {
 		return replaceStatusSectionContent(content, statusText), nil
 	}
 	if hasFrontmatterStatus(content) {
-		return replaceFrontmatterStatus(content, "superseded by "+formatLink(link)), nil
+		return replaceFrontmatterStatus(content, "superseded by "+formatLink(link)+"  "), nil
 	}
 	return "", fmt.Errorf("no status section found: expected ## Status heading or status: in YAML frontmatter")
 }
@@ -193,7 +194,7 @@ func SetSupersedes(content string, links []SupersedesLink) (string, error) {
 	if hasStatusSection(content) {
 		var lines []string
 		for _, link := range links {
-			lines = append(lines, "Supersedes "+formatLink(link))
+			lines = append(lines, "Supersedes "+formatLink(link)+"  ")
 		}
 		return appendToStatusSectionContent(content, strings.Join(lines, "\n")), nil
 	}
@@ -203,7 +204,7 @@ func SetSupersedes(content string, links []SupersedesLink) (string, error) {
 			refs = append(refs, formatLink(link))
 		}
 		currentStatus := getFrontmatterStatusValue(content)
-		newValue := currentStatus + ", supersedes " + strings.Join(refs, ", ")
+		newValue := currentStatus + ", supersedes " + strings.Join(refs, ", ") + "  "
 		return replaceFrontmatterStatus(content, newValue), nil
 	}
 	return "", fmt.Errorf("no status section found: expected ## Status heading or status: in YAML frontmatter")
