@@ -1,4 +1,4 @@
-.PHONY: build build-cli build-web build-frontend test test-verbose test-cover vet clean
+.PHONY: build build-cli build-web build-frontend test test-verbose test-cover test-frontend test-all vet clean
 
 build: build-cli build-web
 
@@ -23,6 +23,11 @@ test-cover:
 
 vet:
 	go vet ./...
+
+test-frontend:
+	cd web && npm run test
+
+test-all: test test-frontend
 
 clean:
 	rm -rf bin/ coverage.*
