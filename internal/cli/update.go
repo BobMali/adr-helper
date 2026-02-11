@@ -62,8 +62,9 @@ func NewUpdateCmd() *cobra.Command {
 				return fmt.Errorf("writing ADR: %w", err)
 			}
 
-			fmt.Fprintf(cmd.OutOrStdout(), "Updated %s status to %s\n", filename, status)
-			return nil
+			_, err = fmt.Fprintf(cmd.OutOrStdout(), "Updated %s status to %s\n", filename, status)
+
+			return err
 		},
 	}
 	return cmd
