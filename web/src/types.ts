@@ -4,3 +4,7 @@ export interface ADRSummary {
   status: string
   date: string
 }
+
+export interface ADRDetail extends ADRSummary {
+  content: string
+}

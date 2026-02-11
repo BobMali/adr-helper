@@ -74,6 +74,7 @@ func (r *FileRepository) Get(_ context.Context, number int) (*ADR, error) {
 		return nil, err
 	}
 
+	record.Content = string(content)
 	return &record, nil
 }
 
@@ -83,4 +84,40 @@ func (r *FileRepository) NextNumber(_ context.Context) (int, error) {
 
 func (r *FileRepository) Save(_ context.Context, _ *ADR) error {
 	return fmt.Errorf("FileRepository.Save not implemented")
+}
+
+// UpdateStatus changes the status of the ADR with the given number and returns the updated record.
+func (r *FileRepository) UpdateStatus(_ context.Context, number int, newStatus string) (*ADR, error) {
+	if _, ok := ParseStatus(newStatus); !ok {
+		return nil, fmt.Errorf("invalid status %q", newStatus)
+	}
+
+	filename, err := FindADRFile(r.dir, number)
+	if err != nil {
+		return nil, err
+	}
+
+	filePath := filepath.Join(r.dir, filename)
+	content, err := os.ReadFile(filePath)
+	if err != nil {
+		return nil, fmt.Errorf("reading %q: %w", filename, err)
+	}
+
+	updated, err := UpdateStatus(string(content), newStatus)
+	if err != nil {
+		return nil, err
+	}
+
+	if err := os.WriteFile(filePath, []byte(updated), 0o644); err != nil {
+		return nil, fmt.Errorf("writing %q: %w", filename, err)
+	}
+
+	meta := ExtractMetadata(updated)
+	record, err := MetadataToADR(meta, number)
+	if err != nil {
+		return nil, err
+	}
+
+	record.Content = updated
+	return &record, nil
 }

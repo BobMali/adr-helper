@@ -2,9 +2,13 @@ package adr
 
 import (
 	"encoding/json"
+	"errors"
 	"strings"
 	"time"
 )
+
+// ErrNotFound is returned when an ADR cannot be found.
+var ErrNotFound = errors.New("ADR not found")
 
 // Status represents the lifecycle state of an ADR.
 type Status int
@@ -93,10 +97,11 @@ func AllStatusStrings() []string {
 
 // ADR represents an Architecture Decision Record.
 type ADR struct {
-	Number int
-	Title  string
-	Status Status
-	Date   time.Time
+	Number  int
+	Title   string
+	Status  Status
+	Date    time.Time
+	Content string
 }
 
 // New creates a new ADR with the given number and title, defaulting to Proposed status.

@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 	"testing/fstest"
 	"time"
@@ -19,16 +20,32 @@ import (
 var _ adr.Repository = (*mockRepo)(nil)
 
 type mockRepo struct {
-	adrs []adr.ADR
-	err  error
+	adrs   []adr.ADR
+	err    error
+	getADR *adr.ADR
+	getErr error
 }
 
 func (m *mockRepo) List(_ context.Context) ([]adr.ADR, error) { return m.adrs, m.err }
 func (m *mockRepo) Get(_ context.Context, _ int) (*adr.ADR, error) {
+	if m.getADR != nil || m.getErr != nil {
+		return m.getADR, m.getErr
+	}
 	return nil, fmt.Errorf("not implemented")
 }
 func (m *mockRepo) Save(_ context.Context, _ *adr.ADR) error  { return nil }
 func (m *mockRepo) NextNumber(_ context.Context) (int, error) { return 0, nil }
+
+var _ web.StatusUpdater = (*mockUpdater)(nil)
+
+type mockUpdater struct {
+	result *adr.ADR
+	err    error
+}
+
+func (m *mockUpdater) UpdateStatus(_ context.Context, _ int, _ string) (*adr.ADR, error) {
+	return m.result, m.err
+}
 
 func TestHealthEndpoint_ReturnsOK(t *testing.T) {
 	srv := web.NewServer(nil)
@@ -128,6 +145,217 @@ func TestListADRs_NilRepo(t *testing.T) {
 
 	assert.Equal(t, http.StatusServiceUnavailable, rec.Code)
 }
+
+// --- GET /api/adr/{number} ---
+
+func TestGetADR_ReturnsADRWithContent(t *testing.T) {
+	repo := &mockRepo{
+		getADR: &adr.ADR{
+			Number:  1,
+			Title:   "Use Go",
+			Status:  adr.Accepted,
+			Date:    time.Date(2024, 1, 15, 0, 0, 0, 0, time.UTC),
+			Content: "# 1. Use Go\n\n## Status\n\nAccepted\n",
+		},
+	}
+	srv := web.NewServer(repo)
+
+	req := httptest.NewRequest(http.MethodGet, "/api/adr/1", nil)
+	rec := httptest.NewRecorder()
+
+	srv.Handler().ServeHTTP(rec, req)
+
+	assert.Equal(t, http.StatusOK, rec.Code)
+	assert.Equal(t, "application/json", rec.Header().Get("Content-Type"))
+
+	var body map[string]interface{}
+	err := json.Unmarshal(rec.Body.Bytes(), &body)
+	require.NoError(t, err)
+	assert.Equal(t, float64(1), body["number"])
+	assert.Equal(t, "Use Go", body["title"])
+	assert.Equal(t, "Accepted", body["status"])
+	assert.Equal(t, "2024-01-15", body["date"])
+	assert.Equal(t, "# 1. Use Go\n\n## Status\n\nAccepted\n", body["content"])
+}
+
+func TestGetADR_NotFound(t *testing.T) {
+	repo := &mockRepo{
+		getErr: fmt.Errorf("ADR 0099: %w", adr.ErrNotFound),
+	}
+	srv := web.NewServer(repo)
+
+	req := httptest.NewRequest(http.MethodGet, "/api/adr/99", nil)
+	rec := httptest.NewRecorder()
+
+	srv.Handler().ServeHTTP(rec, req)
+
+	assert.Equal(t, http.StatusNotFound, rec.Code)
+}
+
+func TestGetADR_InvalidNumber(t *testing.T) {
+	repo := &mockRepo{}
+	srv := web.NewServer(repo)
+
+	req := httptest.NewRequest(http.MethodGet, "/api/adr/abc", nil)
+	rec := httptest.NewRecorder()
+
+	srv.Handler().ServeHTTP(rec, req)
+
+	assert.Equal(t, http.StatusBadRequest, rec.Code)
+}
+
+func TestGetADR_NilRepo(t *testing.T) {
+	srv := web.NewServer(nil)
+
+	req := httptest.NewRequest(http.MethodGet, "/api/adr/1", nil)
+	rec := httptest.NewRecorder()
+
+	srv.Handler().ServeHTTP(rec, req)
+
+	assert.Equal(t, http.StatusServiceUnavailable, rec.Code)
+}
+
+// --- GET /api/adr/statuses ---
+
+func TestStatuses_ReturnsAllStatuses(t *testing.T) {
+	srv := web.NewServer(nil)
+
+	req := httptest.NewRequest(http.MethodGet, "/api/adr/statuses", nil)
+	rec := httptest.NewRecorder()
+
+	srv.Handler().ServeHTTP(rec, req)
+
+	assert.Equal(t, http.StatusOK, rec.Code)
+	assert.Equal(t, "application/json", rec.Header().Get("Content-Type"))
+
+	var statuses []string
+	err := json.Unmarshal(rec.Body.Bytes(), &statuses)
+	require.NoError(t, err)
+	assert.Equal(t, []string{"Proposed", "Accepted", "Rejected", "Deprecated", "Superseded"}, statuses)
+}
+
+// --- PATCH /api/adr/{number}/status ---
+
+func TestUpdateStatus_Success(t *testing.T) {
+	updater := &mockUpdater{
+		result: &adr.ADR{
+			Number:  1,
+			Title:   "Use Go",
+			Status:  adr.Accepted,
+			Date:    time.Date(2024, 1, 15, 0, 0, 0, 0, time.UTC),
+			Content: "# 1. Use Go\n\n## Status\n\nAccepted\n",
+		},
+	}
+	repo := &mockRepo{}
+	srv := web.NewServer(repo, web.WithStatusUpdater(updater))
+
+	body := strings.NewReader(`{"status":"accepted"}`)
+	req := httptest.NewRequest(http.MethodPatch, "/api/adr/1/status", body)
+	req.Header.Set("Content-Type", "application/json")
+	rec := httptest.NewRecorder()
+
+	srv.Handler().ServeHTTP(rec, req)
+
+	assert.Equal(t, http.StatusOK, rec.Code)
+	assert.Equal(t, "application/json", rec.Header().Get("Content-Type"))
+
+	var resp map[string]interface{}
+	err := json.Unmarshal(rec.Body.Bytes(), &resp)
+	require.NoError(t, err)
+	assert.Equal(t, float64(1), resp["number"])
+	assert.Equal(t, "Accepted", resp["status"])
+	assert.NotEmpty(t, resp["content"])
+}
+
+func TestUpdateStatus_InvalidNumber(t *testing.T) {
+	repo := &mockRepo{}
+	updater := &mockUpdater{}
+	srv := web.NewServer(repo, web.WithStatusUpdater(updater))
+
+	body := strings.NewReader(`{"status":"accepted"}`)
+	req := httptest.NewRequest(http.MethodPatch, "/api/adr/abc/status", body)
+	req.Header.Set("Content-Type", "application/json")
+	rec := httptest.NewRecorder()
+
+	srv.Handler().ServeHTTP(rec, req)
+
+	assert.Equal(t, http.StatusBadRequest, rec.Code)
+}
+
+func TestUpdateStatus_InvalidStatus(t *testing.T) {
+	repo := &mockRepo{}
+	updater := &mockUpdater{}
+	srv := web.NewServer(repo, web.WithStatusUpdater(updater))
+
+	body := strings.NewReader(`{"status":"invalid"}`)
+	req := httptest.NewRequest(http.MethodPatch, "/api/adr/1/status", body)
+	req.Header.Set("Content-Type", "application/json")
+	rec := httptest.NewRecorder()
+
+	srv.Handler().ServeHTTP(rec, req)
+
+	assert.Equal(t, http.StatusBadRequest, rec.Code)
+}
+
+func TestUpdateStatus_NotFound(t *testing.T) {
+	updater := &mockUpdater{
+		err: fmt.Errorf("ADR 0099: %w", adr.ErrNotFound),
+	}
+	repo := &mockRepo{}
+	srv := web.NewServer(repo, web.WithStatusUpdater(updater))
+
+	body := strings.NewReader(`{"status":"accepted"}`)
+	req := httptest.NewRequest(http.MethodPatch, "/api/adr/99/status", body)
+	req.Header.Set("Content-Type", "application/json")
+	rec := httptest.NewRecorder()
+
+	srv.Handler().ServeHTTP(rec, req)
+
+	assert.Equal(t, http.StatusNotFound, rec.Code)
+}
+
+func TestUpdateStatus_NoBody(t *testing.T) {
+	repo := &mockRepo{}
+	updater := &mockUpdater{}
+	srv := web.NewServer(repo, web.WithStatusUpdater(updater))
+
+	req := httptest.NewRequest(http.MethodPatch, "/api/adr/1/status", nil)
+	req.Header.Set("Content-Type", "application/json")
+	rec := httptest.NewRecorder()
+
+	srv.Handler().ServeHTTP(rec, req)
+
+	assert.Equal(t, http.StatusBadRequest, rec.Code)
+}
+
+func TestUpdateStatus_NoUpdater(t *testing.T) {
+	repo := &mockRepo{}
+	srv := web.NewServer(repo)
+
+	body := strings.NewReader(`{"status":"accepted"}`)
+	req := httptest.NewRequest(http.MethodPatch, "/api/adr/1/status", body)
+	req.Header.Set("Content-Type", "application/json")
+	rec := httptest.NewRecorder()
+
+	srv.Handler().ServeHTTP(rec, req)
+
+	assert.Equal(t, http.StatusNotImplemented, rec.Code)
+}
+
+func TestUpdateStatus_NilRepo(t *testing.T) {
+	srv := web.NewServer(nil)
+
+	body := strings.NewReader(`{"status":"accepted"}`)
+	req := httptest.NewRequest(http.MethodPatch, "/api/adr/1/status", body)
+	req.Header.Set("Content-Type", "application/json")
+	rec := httptest.NewRecorder()
+
+	srv.Handler().ServeHTTP(rec, req)
+
+	assert.Equal(t, http.StatusServiceUnavailable, rec.Code)
+}
+
+// --- SPA handler tests ---
 
 func TestSPAHandler_ServesIndexFallback(t *testing.T) {
 	frontend := fstest.MapFS{

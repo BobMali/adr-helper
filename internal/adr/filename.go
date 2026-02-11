@@ -41,7 +41,7 @@ func FindADRFile(dir string, number int) (string, error) {
 			return entry.Name(), nil
 		}
 	}
-	return "", fmt.Errorf("ADR %04d not found in %q", number, dir)
+	return "", fmt.Errorf("ADR %04d: %w", number, ErrNotFound)
 }
 
 // NextNumber scans dir for existing ADR files and returns max+1, or 1 if none found.

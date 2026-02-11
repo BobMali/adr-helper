@@ -98,6 +98,18 @@ func TestFileRepository_Get(t *testing.T) {
 	assert.Equal(t, "Use Go", record.Title)
 }
 
+func TestFileRepository_Get_PopulatesContent(t *testing.T) {
+	dir := t.TempDir()
+	raw := "# 1. Use Go\n\nDate: 2024-01-15\n\n## Status\n\nAccepted\n\n## Context\n\nWe need a language.\n"
+	writeFile(t, dir, "0001-use-go.md", raw)
+
+	repo := NewFileRepository(dir)
+	record, err := repo.Get(context.Background(), 1)
+
+	require.NoError(t, err)
+	assert.Equal(t, raw, record.Content)
+}
+
 func TestFileRepository_Get_NotFound(t *testing.T) {
 	dir := t.TempDir()
 
@@ -105,6 +117,7 @@ func TestFileRepository_Get_NotFound(t *testing.T) {
 	_, err := repo.Get(context.Background(), 99)
 
 	assert.Error(t, err)
+	assert.ErrorIs(t, err, ErrNotFound)
 }
 
 func TestFileRepository_NextNumber(t *testing.T) {
@@ -117,6 +130,58 @@ func TestFileRepository_NextNumber(t *testing.T) {
 
 	require.NoError(t, err)
 	assert.Equal(t, 3, next)
+}
+
+func TestFileRepository_UpdateStatus_Nygard(t *testing.T) {
+	dir := t.TempDir()
+	writeFile(t, dir, "0001-use-go.md", "# 1. Use Go\n\nDate: 2024-01-15\n\n## Status\n\nProposed\n\n## Context\n\nWe need a language.\n")
+
+	repo := NewFileRepository(dir)
+	record, err := repo.UpdateStatus(context.Background(), 1, "accepted")
+
+	require.NoError(t, err)
+	assert.Equal(t, Accepted, record.Status)
+	assert.Equal(t, 1, record.Number)
+	assert.Equal(t, "Use Go", record.Title)
+	assert.Contains(t, record.Content, "Accepted")
+
+	// Verify file was actually written
+	data, err := os.ReadFile(filepath.Join(dir, "0001-use-go.md"))
+	require.NoError(t, err)
+	assert.Contains(t, string(data), "Accepted")
+}
+
+func TestFileRepository_UpdateStatus_NotFound(t *testing.T) {
+	dir := t.TempDir()
+
+	repo := NewFileRepository(dir)
+	_, err := repo.UpdateStatus(context.Background(), 99, "accepted")
+
+	assert.Error(t, err)
+	assert.ErrorIs(t, err, ErrNotFound)
+}
+
+func TestFileRepository_UpdateStatus_InvalidStatus(t *testing.T) {
+	dir := t.TempDir()
+	writeFile(t, dir, "0001-use-go.md", "# 1. Use Go\n\nDate: 2024-01-15\n\n## Status\n\nProposed\n")
+
+	repo := NewFileRepository(dir)
+	_, err := repo.UpdateStatus(context.Background(), 1, "invalid")
+
+	assert.Error(t, err)
+	assert.Contains(t, err.Error(), "invalid status")
+}
+
+func TestFileRepository_UpdateStatus_PreservesSupersedes(t *testing.T) {
+	dir := t.TempDir()
+	writeFile(t, dir, "0001-use-go.md", "# 1. Use Go\n\nDate: 2024-01-15\n\n## Status\n\nAccepted\n\nSupersedes [ADR-0002](0002-old.md)\n\n## Context\n\nWe need a language.\n")
+
+	repo := NewFileRepository(dir)
+	record, err := repo.UpdateStatus(context.Background(), 1, "deprecated")
+
+	require.NoError(t, err)
+	assert.Equal(t, Deprecated, record.Status)
+	assert.Contains(t, record.Content, "Supersedes [ADR-0002](0002-old.md)")
 }
 
 func writeFile(t *testing.T, dir, name, content string) {

@@ -1,16 +1,24 @@
 package web
 
 import (
+	"context"
 	"encoding/json"
+	"errors"
 	"io"
 	"io/fs"
 	"net/http"
 	"path"
+	"strconv"
 	"strings"
 
 	"github.com/BobMali/adr-helper/internal/adr"
 	"github.com/go-chi/chi/v5"
 )
+
+// StatusUpdater can change an ADR's status and return the updated record.
+type StatusUpdater interface {
+	UpdateStatus(ctx context.Context, number int, newStatus string) (*adr.ADR, error)
+}
 
 // ServerOption configures optional Server behaviour.
 type ServerOption func(*Server)
@@ -23,11 +31,19 @@ func WithFrontend(frontend fs.FS) ServerOption {
 	}
 }
 
+// WithStatusUpdater enables the PATCH status endpoint.
+func WithStatusUpdater(u StatusUpdater) ServerOption {
+	return func(s *Server) {
+		s.updater = u
+	}
+}
+
 // Server holds the web server's dependencies and router.
 type Server struct {
 	router   chi.Router
 	repo     adr.Repository
 	frontend fs.FS
+	updater  StatusUpdater
 }
 
 // NewServer creates a new Server with routes configured.
@@ -41,6 +57,9 @@ func NewServer(repo adr.Repository, opts ...ServerOption) *Server {
 
 	r.Get("/health", s.handleHealth)
 	r.Get("/api/adr", s.handleListADRs)
+	r.Get("/api/adr/statuses", s.handleStatuses)
+	r.Get("/api/adr/{number}", s.handleGetADR)
+	r.Patch("/api/adr/{number}/status", s.handleUpdateStatus)
 
 	if s.frontend != nil {
 		r.NotFound(spaHandler(s.frontend))
@@ -66,6 +85,41 @@ type adrResponse struct {
 	Date   string     `json:"date"`
 }
 
+type adrDetailResponse struct {
+	Number  int        `json:"number"`
+	Title   string     `json:"title"`
+	Status  adr.Status `json:"status"`
+	Date    string     `json:"date"`
+	Content string     `json:"content"`
+}
+
+func toResponse(a adr.ADR) adrResponse {
+	dateStr := ""
+	if !a.Date.IsZero() {
+		dateStr = a.Date.Format("2006-01-02")
+	}
+	return adrResponse{
+		Number: a.Number,
+		Title:  a.Title,
+		Status: a.Status,
+		Date:   dateStr,
+	}
+}
+
+func toDetailResponse(a adr.ADR) adrDetailResponse {
+	dateStr := ""
+	if !a.Date.IsZero() {
+		dateStr = a.Date.Format("2006-01-02")
+	}
+	return adrDetailResponse{
+		Number:  a.Number,
+		Title:   a.Title,
+		Status:  a.Status,
+		Date:    dateStr,
+		Content: a.Content,
+	}
+}
+
 func (s *Server) handleListADRs(w http.ResponseWriter, r *http.Request) {
 	if s.repo == nil {
 		http.Error(w, "repository not configured", http.StatusServiceUnavailable)
@@ -80,20 +134,106 @@ func (s *Server) handleListADRs(w http.ResponseWriter, r *http.Request) {
 
 	resp := make([]adrResponse, len(adrs))
 	for i, a := range adrs {
-		dateStr := ""
-		if !a.Date.IsZero() {
-			dateStr = a.Date.Format("2006-01-02")
-		}
-		resp[i] = adrResponse{
-			Number: a.Number,
-			Title:  a.Title,
-			Status: a.Status,
-			Date:   dateStr,
-		}
+		resp[i] = toResponse(a)
 	}
 
 	w.Header().Set("Content-Type", "application/json")
 	if err := json.NewEncoder(w).Encode(resp); err != nil {
+		http.Error(w, "failed to encode response", http.StatusInternalServerError)
+	}
+}
+
+func (s *Server) handleGetADR(w http.ResponseWriter, r *http.Request) {
+	if s.repo == nil {
+		http.Error(w, "repository not configured", http.StatusServiceUnavailable)
+		return
+	}
+
+	numberStr := chi.URLParam(r, "number")
+	number, err := strconv.Atoi(numberStr)
+	if err != nil || number <= 0 {
+		http.Error(w, "invalid ADR number", http.StatusBadRequest)
+		return
+	}
+
+	record, err := s.repo.Get(r.Context(), number)
+	if err != nil {
+		if errors.Is(err, adr.ErrNotFound) {
+			http.Error(w, "ADR not found", http.StatusNotFound)
+			return
+		}
+		http.Error(w, "failed to get ADR", http.StatusInternalServerError)
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	if err := json.NewEncoder(w).Encode(toDetailResponse(*record)); err != nil {
+		http.Error(w, "failed to encode response", http.StatusInternalServerError)
+	}
+}
+
+func (s *Server) handleStatuses(w http.ResponseWriter, _ *http.Request) {
+	statuses := adr.AllStatuses()
+	names := make([]string, len(statuses))
+	for i, st := range statuses {
+		names[i] = st.String()
+	}
+	w.Header().Set("Content-Type", "application/json")
+	if err := json.NewEncoder(w).Encode(names); err != nil {
+		http.Error(w, "failed to encode response", http.StatusInternalServerError)
+	}
+}
+
+func (s *Server) handleUpdateStatus(w http.ResponseWriter, r *http.Request) {
+	if s.repo == nil {
+		http.Error(w, "repository not configured", http.StatusServiceUnavailable)
+		return
+	}
+
+	if s.updater == nil {
+		http.Error(w, "status updates not supported", http.StatusNotImplemented)
+		return
+	}
+
+	numberStr := chi.URLParam(r, "number")
+	number, err := strconv.Atoi(numberStr)
+	if err != nil || number <= 0 {
+		http.Error(w, "invalid ADR number", http.StatusBadRequest)
+		return
+	}
+
+	ct := r.Header.Get("Content-Type")
+	if !strings.HasPrefix(ct, "application/json") {
+		http.Error(w, "Content-Type must be application/json", http.StatusBadRequest)
+		return
+	}
+
+	r.Body = http.MaxBytesReader(w, r.Body, 1024)
+	var body struct {
+		Status string `json:"status"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		http.Error(w, "invalid request body", http.StatusBadRequest)
+		return
+	}
+
+	if _, ok := adr.ParseStatus(body.Status); !ok {
+		http.Error(w, "invalid status", http.StatusBadRequest)
+		return
+	}
+
+	record, err := s.updater.UpdateStatus(r.Context(), number, body.Status)
+	if err != nil {
+		if errors.Is(err, adr.ErrNotFound) {
+			http.Error(w, "ADR not found", http.StatusNotFound)
+			return
+		}
+		http.Error(w, "failed to update status", http.StatusInternalServerError)
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	if err := json.NewEncoder(w).Encode(toDetailResponse(*record)); err != nil {
 		http.Error(w, "failed to encode response", http.StatusInternalServerError)
 	}
 }
