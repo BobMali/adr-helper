@@ -54,6 +54,12 @@ describe('fetchADRs', () => {
 
     await expect(fetchADRs()).rejects.toThrow('Failed to fetch ADRs: 500')
   })
+
+  it('wraps network TypeError with user-friendly message', async () => {
+    vi.stubGlobal('fetch', vi.fn().mockRejectedValue(new TypeError('Failed to fetch')))
+
+    await expect(fetchADRs()).rejects.toThrow('Network error: unable to reach server')
+  })
 })
 
 describe('fetchADR', () => {
@@ -79,6 +85,12 @@ describe('fetchADR', () => {
 
     await expect(fetchADR(1)).rejects.toThrow('Failed to fetch ADR: 503')
   })
+
+  it('wraps network TypeError with user-friendly message', async () => {
+    vi.stubGlobal('fetch', vi.fn().mockRejectedValue(new TypeError('Failed to fetch')))
+
+    await expect(fetchADR(3)).rejects.toThrow('Network error: unable to reach server')
+  })
 })
 
 describe('fetchStatuses', () => {
@@ -96,6 +108,12 @@ describe('fetchStatuses', () => {
     mockFetchFail(500)
 
     await expect(fetchStatuses()).rejects.toThrow('Failed to fetch statuses: 500')
+  })
+
+  it('wraps network TypeError with user-friendly message', async () => {
+    vi.stubGlobal('fetch', vi.fn().mockRejectedValue(new TypeError('Failed to fetch')))
+
+    await expect(fetchStatuses()).rejects.toThrow('Network error: unable to reach server')
   })
 })
 
@@ -146,5 +164,11 @@ describe('updateADRStatus', () => {
     mockFetchFail(503)
 
     await expect(updateADRStatus(1, 'Accepted')).rejects.toThrow('Failed to update status: 503')
+  })
+
+  it('wraps network TypeError with user-friendly message', async () => {
+    vi.stubGlobal('fetch', vi.fn().mockRejectedValue(new TypeError('Failed to fetch')))
+
+    await expect(updateADRStatus(1, 'Accepted')).rejects.toThrow('Network error: unable to reach server')
   })
 })

@@ -1,7 +1,8 @@
 <script setup lang="ts">
-import { ref, onMounted, nextTick, computed, watch } from 'vue'
+import { ref, onMounted, onUnmounted, nextTick, computed, watch } from 'vue'
 import { RouterLink } from 'vue-router'
 import { marked } from 'marked'
+import DOMPurify from 'dompurify'
 import type { ADRDetail, ADRSummary } from '../types'
 import { fetchADR, fetchADRs, fetchStatuses, updateADRStatus, NotFoundError } from '../api'
 
@@ -30,7 +31,8 @@ const supersedingSelectRef = ref<HTMLSelectElement | null>(null)
 
 const renderedContent = computed(() => {
   if (!adr.value?.content) return ''
-  return marked(adr.value.content) as string
+  const raw = marked(adr.value.content) as string
+  return DOMPurify.sanitize(raw)
 })
 
 const formattedDate = computed(() => {
@@ -41,6 +43,12 @@ const formattedDate = computed(() => {
     month: 'long',
     day: 'numeric',
   }).format(d)
+})
+
+onUnmounted(() => {
+  if (feedbackTimer) {
+    clearTimeout(feedbackTimer)
+  }
 })
 
 onMounted(async () => {

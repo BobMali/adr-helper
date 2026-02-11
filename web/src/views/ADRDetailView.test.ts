@@ -423,6 +423,78 @@ describe('ADRDetailView', () => {
     })
   })
 
+  describe('unmount cleanup', () => {
+    it('clears feedback timer on unmount', async () => {
+      vi.useFakeTimers()
+      mockedFetchADR.mockResolvedValue({ ...sampleDetail })
+      mockedFetchStatuses.mockResolvedValue([...sampleStatuses])
+      const updatedADR = { ...sampleDetail, status: 'Deprecated' }
+      mockedUpdateADRStatus.mockResolvedValue(updatedADR)
+
+      const { wrapper } = await mountView()
+      await flushPromises()
+
+      // Trigger status update so the 4s timer starts
+      await wrapper.find('select#status-select').setValue('Deprecated')
+      await flushPromises()
+
+      expect(wrapper.text()).toContain('Status updated to Deprecated')
+
+      // Unmount before timer fires
+      wrapper.unmount()
+
+      // Advance past the 4s timer — should not throw
+      vi.advanceTimersByTime(4000)
+
+      vi.useRealTimers()
+    })
+  })
+
+  describe('XSS sanitization', () => {
+    it('strips script tags from markdown content', async () => {
+      mockedFetchADR.mockResolvedValue({
+        ...sampleDetail,
+        content: '# Title\n<script>alert("xss")</script>',
+      })
+      mockedFetchStatuses.mockResolvedValue([...sampleStatuses])
+
+      const { wrapper } = await mountView()
+      await flushPromises()
+
+      const section = wrapper.find('section')
+      expect(section.html()).not.toContain('<script>')
+    })
+
+    it('strips event handler attributes', async () => {
+      mockedFetchADR.mockResolvedValue({
+        ...sampleDetail,
+        content: '<img src=x onerror="alert(\'xss\')">',
+      })
+      mockedFetchStatuses.mockResolvedValue([...sampleStatuses])
+
+      const { wrapper } = await mountView()
+      await flushPromises()
+
+      const section = wrapper.find('section')
+      expect(section.html()).not.toContain('onerror')
+    })
+
+    it('allows safe markdown formatting', async () => {
+      mockedFetchADR.mockResolvedValue({
+        ...sampleDetail,
+        content: '## Heading\n\n**Bold text**',
+      })
+      mockedFetchStatuses.mockResolvedValue([...sampleStatuses])
+
+      const { wrapper } = await mountView()
+      await flushPromises()
+
+      const section = wrapper.find('section')
+      expect(section.html()).toContain('<h2')
+      expect(section.html()).toContain('<strong>')
+    })
+  })
+
   describe('accessibility', () => {
     beforeEach(() => {
       mockedFetchADR.mockResolvedValue({ ...sampleDetail })
