@@ -1,9 +1,9 @@
 <script setup lang="ts">
-import { ref, onMounted, nextTick, computed } from 'vue'
+import { ref, onMounted, nextTick, computed, watch } from 'vue'
 import { RouterLink } from 'vue-router'
 import { marked } from 'marked'
-import type { ADRDetail } from '../types'
-import { fetchADR, fetchStatuses, updateADRStatus, NotFoundError } from '../api'
+import type { ADRDetail, ADRSummary } from '../types'
+import { fetchADR, fetchADRs, fetchStatuses, updateADRStatus, NotFoundError } from '../api'
 
 const props = defineProps<{ number: number }>()
 
@@ -17,8 +17,16 @@ const feedback = ref('')
 const feedbackType = ref<'success' | 'error'>('success')
 const titleRef = ref<HTMLHeadingElement | null>(null)
 
+const selectedStatus = ref('')
 let previousStatus = ''
 let feedbackTimer: ReturnType<typeof setTimeout> | undefined
+
+// Supersede flow state
+const pendingSuperseded = ref(false)
+const supersededBy = ref<number | null>(null)
+const availableADRs = ref<ADRSummary[]>([])
+const loadingADRs = ref(false)
+const supersedingSelectRef = ref<HTMLSelectElement | null>(null)
 
 const renderedContent = computed(() => {
   if (!adr.value?.content) return ''
@@ -43,6 +51,7 @@ onMounted(async () => {
     ])
     adr.value = adrData
     statuses.value = statusData
+    selectedStatus.value = adrData.status
     previousStatus = adrData.status
 
     await nextTick()
@@ -58,12 +67,39 @@ onMounted(async () => {
   }
 })
 
-async function onStatusChange(event: Event) {
-  const select = event.target as HTMLSelectElement
-  const newStatus = select.value
+function statusDisplayText(s: string): string {
+  return s === 'Superseded' ? 'Superseded\u2026' : s
+}
 
-  if (newStatus === previousStatus) return
+watch(selectedStatus, async (newStatus) => {
+  if (newStatus === previousStatus) {
+    cancelSupersede()
+    return
+  }
 
+  if (newStatus === 'Superseded') {
+    pendingSuperseded.value = true
+    supersededBy.value = null
+    loadingADRs.value = true
+    try {
+      const allADRs = await fetchADRs()
+      availableADRs.value = allADRs.filter(a => a.number !== props.number)
+    } catch {
+      availableADRs.value = []
+    } finally {
+      loadingADRs.value = false
+    }
+    await nextTick()
+    supersedingSelectRef.value?.focus()
+    return
+  }
+
+  // Non-superseded status change
+  cancelSupersede()
+  await doStatusUpdate(newStatus)
+})
+
+async function doStatusUpdate(newStatus: string, options?: { supersededBy?: number }) {
   updating.value = true
   feedback.value = ''
 
@@ -73,18 +109,42 @@ async function onStatusChange(event: Event) {
   }
 
   try {
-    const updated = await updateADRStatus(props.number, newStatus)
+    const updated = await updateADRStatus(props.number, newStatus, options)
     adr.value = updated
+    selectedStatus.value = updated.status
     previousStatus = updated.status
     feedbackType.value = 'success'
     feedback.value = `Status updated to ${updated.status}`
     feedbackTimer = setTimeout(() => { feedback.value = '' }, 4000)
+    pendingSuperseded.value = false
   } catch (e) {
-    select.value = previousStatus
+    selectedStatus.value = previousStatus
     feedbackType.value = 'error'
     feedback.value = e instanceof Error ? e.message : 'Failed to update status'
   } finally {
     updating.value = false
+  }
+}
+
+function cancelSupersede() {
+  pendingSuperseded.value = false
+  supersededBy.value = null
+  availableADRs.value = []
+  selectedStatus.value = previousStatus
+}
+
+async function confirmSupersede() {
+  if (supersededBy.value == null) return
+  await doStatusUpdate('Superseded', { supersededBy: supersededBy.value })
+}
+
+function onSelectorKeydown(event: KeyboardEvent) {
+  if (event.key === 'Escape') {
+    event.preventDefault()
+    cancelSupersede()
+  } else if (event.key === 'Enter' && supersededBy.value != null) {
+    event.preventDefault()
+    confirmSupersede()
   }
 }
 </script>
@@ -145,13 +205,61 @@ async function onStatusChange(event: Event) {
           <label for="status-select" class="text-sm font-medium text-gray-700 dark:text-gray-300">Status:</label>
           <select
             id="status-select"
-            :value="adr.status"
+            v-model="selectedStatus"
+            :disabled="pendingSuperseded || updating"
             :aria-busy="updating"
-            @change="onStatusChange"
-            class="rounded border border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-900 text-sm px-2 py-1 text-gray-900 dark:text-gray-100 focus-visible:ring-2 focus-visible:ring-blue-500 focus-visible:outline-none"
+            :aria-disabled="pendingSuperseded || undefined"
+            class="rounded border border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-900 text-sm px-2 py-1 text-gray-900 dark:text-gray-100 focus-visible:ring-2 focus-visible:ring-blue-500 focus-visible:outline-none disabled:opacity-50"
           >
-            <option v-for="s in statuses" :key="s" :value="s">{{ s }}</option>
+            <option v-for="s in statuses" :key="s" :value="s">{{ statusDisplayText(s) }}</option>
           </select>
+          <span v-if="pendingSuperseded" class="sr-only">Status dropdown disabled while selecting superseding ADR</span>
+        </div>
+      </div>
+
+      <!-- Supersede selector -->
+      <div
+        v-if="pendingSuperseded"
+        role="group"
+        aria-labelledby="supersede-label"
+        class="mt-3 ml-4 p-3 border-l-2 border-blue-500 bg-blue-50 dark:bg-blue-900/10 rounded-r"
+        @keydown="onSelectorKeydown"
+      >
+        <p id="supersede-label" class="text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+          Select the ADR that supersedes this one:
+        </p>
+        <div aria-live="polite">
+          <div v-if="loadingADRs" class="text-sm text-gray-500 dark:text-gray-400">Loading ADRs…</div>
+          <div v-else-if="availableADRs.length === 0" class="text-sm text-gray-500 dark:text-gray-400">
+            No other ADRs available
+          </div>
+          <select
+            v-else
+            ref="supersedingSelectRef"
+            v-model.number="supersededBy"
+            class="rounded border border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-900 text-sm px-2 py-1 text-gray-900 dark:text-gray-100 focus-visible:ring-2 focus-visible:ring-blue-500 focus-visible:outline-none w-full"
+          >
+            <option :value="null" disabled>— Choose an ADR —</option>
+            <option v-for="a in availableADRs" :key="a.number" :value="a.number">
+              ADR-{{ String(a.number).padStart(4, '0') }}: {{ a.title }} ({{ a.status }})
+            </option>
+          </select>
+        </div>
+        <div class="mt-2 flex gap-2">
+          <button
+            :disabled="supersededBy == null || updating"
+            class="px-3 py-1 text-sm rounded bg-blue-600 text-white hover:bg-blue-700 focus-visible:ring-2 focus-visible:ring-blue-500 focus-visible:outline-none disabled:opacity-50 disabled:cursor-not-allowed"
+            @click="confirmSupersede"
+          >
+            Confirm
+          </button>
+          <button
+            :disabled="updating"
+            class="px-3 py-1 text-sm rounded border border-gray-300 dark:border-gray-700 text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-800 focus-visible:ring-2 focus-visible:ring-blue-500 focus-visible:outline-none"
+            @click="cancelSupersede"
+          >
+            Cancel
+          </button>
         </div>
       </div>
 

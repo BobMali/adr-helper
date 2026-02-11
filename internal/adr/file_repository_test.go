@@ -184,6 +184,36 @@ func TestFileRepository_UpdateStatus_PreservesSupersedes(t *testing.T) {
 	assert.Contains(t, record.Content, "Supersedes [ADR-0002](0002-old.md)")
 }
 
+func TestFileRepository_Supersede_UpdatesBothFiles(t *testing.T) {
+	dir := t.TempDir()
+	writeFile(t, dir, "0002-use-chi.md", "# 2. Use Chi\n\nDate: 2024-02-01\n\n## Status\n\nAccepted\n\n## Context\n\nWe need a router.\n")
+	writeFile(t, dir, "0006-use-gin.md", "# 6. Use Gin\n\nDate: 2024-06-01\n\n## Status\n\nAccepted\n\n## Context\n\nWe want Gin.\n")
+
+	repo := NewFileRepository(dir)
+	record, err := repo.Supersede(context.Background(), 2, 6)
+
+	require.NoError(t, err)
+	assert.Equal(t, 2, record.Number)
+	assert.Equal(t, Superseded, record.Status)
+	assert.Contains(t, record.Content, "Superseded by [ADR-0006](0006-use-gin.md)")
+
+	// Verify superseding ADR file was updated
+	data, err := os.ReadFile(filepath.Join(dir, "0006-use-gin.md"))
+	require.NoError(t, err)
+	assert.Contains(t, string(data), "Supersedes [ADR-0002](0002-use-chi.md)")
+}
+
+func TestFileRepository_Supersede_NotFound(t *testing.T) {
+	dir := t.TempDir()
+	writeFile(t, dir, "0002-use-chi.md", "# 2. Use Chi\n\nDate: 2024-02-01\n\n## Status\n\nAccepted\n")
+
+	repo := NewFileRepository(dir)
+	_, err := repo.Supersede(context.Background(), 2, 99)
+
+	assert.Error(t, err)
+	assert.ErrorIs(t, err, ErrNotFound)
+}
+
 func writeFile(t *testing.T, dir, name, content string) {
 	t.Helper()
 	err := os.WriteFile(filepath.Join(dir, name), []byte(content), 0o644)

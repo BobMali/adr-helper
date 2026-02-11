@@ -27,11 +27,19 @@ export async function fetchStatuses(): Promise<string[]> {
   return res.json()
 }
 
-export async function updateADRStatus(number: number, status: string): Promise<ADRDetail> {
+export async function updateADRStatus(
+  number: number,
+  status: string,
+  options?: { supersededBy?: number },
+): Promise<ADRDetail> {
+  const payload: Record<string, unknown> = { status }
+  if (options?.supersededBy != null) {
+    payload.supersededBy = options.supersededBy
+  }
   const res = await fetch(`/api/adr/${number}/status`, {
     method: 'PATCH',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ status }),
+    body: JSON.stringify(payload),
   })
   if (res.status === 404) {
     throw new NotFoundError(`ADR #${number} not found`)

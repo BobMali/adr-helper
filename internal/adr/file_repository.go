@@ -86,6 +86,63 @@ func (r *FileRepository) Save(_ context.Context, _ *ADR) error {
 	return fmt.Errorf("FileRepository.Save not implemented")
 }
 
+// Supersede marks the superseded ADR as "Superseded by" the superseding ADR,
+// and appends "Supersedes" to the superseding ADR. Returns the updated superseded record.
+func (r *FileRepository) Supersede(_ context.Context, supersededNum, supersedingNum int) (*ADR, error) {
+	supersededFile, err := FindADRFile(r.dir, supersededNum)
+	if err != nil {
+		return nil, err
+	}
+	supersedingFile, err := FindADRFile(r.dir, supersedingNum)
+	if err != nil {
+		return nil, err
+	}
+
+	supersededPath := filepath.Join(r.dir, supersededFile)
+	supersedingPath := filepath.Join(r.dir, supersedingFile)
+
+	supersededContent, err := os.ReadFile(supersededPath)
+	if err != nil {
+		return nil, fmt.Errorf("reading %q: %w", supersededFile, err)
+	}
+	supersedingContent, err := os.ReadFile(supersedingPath)
+	if err != nil {
+		return nil, fmt.Errorf("reading %q: %w", supersedingFile, err)
+	}
+
+	updatedSuperseded, err := SetSupersededBy(string(supersededContent), SupersedesLink{
+		Number:   supersedingNum,
+		Filename: supersedingFile,
+	})
+	if err != nil {
+		return nil, fmt.Errorf("setting superseded-by on ADR %d: %w", supersededNum, err)
+	}
+
+	updatedSuperseding, err := SetSupersedes(string(supersedingContent), []SupersedesLink{{
+		Number:   supersededNum,
+		Filename: supersededFile,
+	}})
+	if err != nil {
+		return nil, fmt.Errorf("setting supersedes on ADR %d: %w", supersedingNum, err)
+	}
+
+	// Write superseding first — if it fails, the superseded file stays untouched
+	if err := os.WriteFile(supersedingPath, []byte(updatedSuperseding), 0o644); err != nil {
+		return nil, fmt.Errorf("writing %q: %w", supersedingFile, err)
+	}
+	if err := os.WriteFile(supersededPath, []byte(updatedSuperseded), 0o644); err != nil {
+		return nil, fmt.Errorf("writing %q: %w", supersededFile, err)
+	}
+
+	meta := ExtractMetadata(updatedSuperseded)
+	record, err := MetadataToADR(meta, supersededNum)
+	if err != nil {
+		return nil, err
+	}
+	record.Content = updatedSuperseded
+	return &record, nil
+}
+
 // UpdateStatus changes the status of the ADR with the given number and returns the updated record.
 func (r *FileRepository) UpdateStatus(_ context.Context, number int, newStatus string) (*ADR, error) {
 	if _, ok := ParseStatus(newStatus); !ok {

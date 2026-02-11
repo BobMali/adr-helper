@@ -20,6 +20,11 @@ type StatusUpdater interface {
 	UpdateStatus(ctx context.Context, number int, newStatus string) (*adr.ADR, error)
 }
 
+// Superseder performs bidirectional supersede updates between two ADRs.
+type Superseder interface {
+	Supersede(ctx context.Context, supersededNum, supersedingNum int) (*adr.ADR, error)
+}
+
 // ServerOption configures optional Server behaviour.
 type ServerOption func(*Server)
 
@@ -38,12 +43,20 @@ func WithStatusUpdater(u StatusUpdater) ServerOption {
 	}
 }
 
+// WithSuperseder enables the supersede flow in the PATCH status endpoint.
+func WithSuperseder(sup Superseder) ServerOption {
+	return func(s *Server) {
+		s.superseder = sup
+	}
+}
+
 // Server holds the web server's dependencies and router.
 type Server struct {
-	router   chi.Router
-	repo     adr.Repository
-	frontend fs.FS
-	updater  StatusUpdater
+	router     chi.Router
+	repo       adr.Repository
+	frontend   fs.FS
+	updater    StatusUpdater
+	superseder Superseder
 }
 
 // NewServer creates a new Server with routes configured.
@@ -210,19 +223,34 @@ func (s *Server) handleUpdateStatus(w http.ResponseWriter, r *http.Request) {
 
 	r.Body = http.MaxBytesReader(w, r.Body, 1024)
 	var body struct {
-		Status string `json:"status"`
+		Status       string `json:"status"`
+		SupersededBy *int   `json:"supersededBy,omitempty"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
 		http.Error(w, "invalid request body", http.StatusBadRequest)
 		return
 	}
 
-	if _, ok := adr.ParseStatus(body.Status); !ok {
+	parsed, ok := adr.ParseStatus(body.Status)
+	if !ok {
 		http.Error(w, "invalid status", http.StatusBadRequest)
 		return
 	}
 
-	record, err := s.updater.UpdateStatus(r.Context(), number, body.Status)
+	var record *adr.ADR
+	if parsed == adr.Superseded {
+		if body.SupersededBy == nil {
+			http.Error(w, "supersededBy is required when status is Superseded", http.StatusBadRequest)
+			return
+		}
+		if s.superseder == nil {
+			http.Error(w, "supersede not supported", http.StatusNotImplemented)
+			return
+		}
+		record, err = s.superseder.Supersede(r.Context(), number, *body.SupersededBy)
+	} else {
+		record, err = s.updater.UpdateStatus(r.Context(), number, body.Status)
+	}
 	if err != nil {
 		if errors.Is(err, adr.ErrNotFound) {
 			http.Error(w, "ADR not found", http.StatusNotFound)

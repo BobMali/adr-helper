@@ -41,9 +41,26 @@ var _ web.StatusUpdater = (*mockUpdater)(nil)
 type mockUpdater struct {
 	result *adr.ADR
 	err    error
+	called bool
 }
 
 func (m *mockUpdater) UpdateStatus(_ context.Context, _ int, _ string) (*adr.ADR, error) {
+	m.called = true
+	return m.result, m.err
+}
+
+var _ web.Superseder = (*mockSuperseder)(nil)
+
+type mockSuperseder struct {
+	result     *adr.ADR
+	err        error
+	calledWith [2]int // [supersededNum, supersedingNum]
+	called     bool
+}
+
+func (m *mockSuperseder) Supersede(_ context.Context, supersededNum, supersedingNum int) (*adr.ADR, error) {
+	m.called = true
+	m.calledWith = [2]int{supersededNum, supersedingNum}
 	return m.result, m.err
 }
 
@@ -404,6 +421,100 @@ func TestSPAHandler_ServesRootAsIndex(t *testing.T) {
 
 	assert.Equal(t, http.StatusOK, rec.Code)
 	assert.Contains(t, rec.Body.String(), "<html>SPA</html>")
+}
+
+// --- PATCH /api/adr/{number}/status — Supersede flow ---
+
+func TestUpdateStatus_Supersede_Success(t *testing.T) {
+	superseder := &mockSuperseder{
+		result: &adr.ADR{
+			Number:  2,
+			Title:   "Use Chi",
+			Status:  adr.Superseded,
+			Date:    time.Date(2024, 2, 1, 0, 0, 0, 0, time.UTC),
+			Content: "# 2. Use Chi\n\n## Status\n\nSuperseded by [ADR-0003](0003-use-gin.md)\n",
+		},
+	}
+	updater := &mockUpdater{}
+	repo := &mockRepo{}
+	srv := web.NewServer(repo, web.WithStatusUpdater(updater), web.WithSuperseder(superseder))
+
+	body := strings.NewReader(`{"status":"Superseded","supersededBy":3}`)
+	req := httptest.NewRequest(http.MethodPatch, "/api/adr/2/status", body)
+	req.Header.Set("Content-Type", "application/json")
+	rec := httptest.NewRecorder()
+
+	srv.Handler().ServeHTTP(rec, req)
+
+	assert.Equal(t, http.StatusOK, rec.Code)
+	assert.True(t, superseder.called)
+	assert.Equal(t, [2]int{2, 3}, superseder.calledWith)
+	assert.False(t, updater.called, "UpdateStatus should not be called for Superseded")
+
+	var resp map[string]interface{}
+	err := json.Unmarshal(rec.Body.Bytes(), &resp)
+	require.NoError(t, err)
+	assert.Equal(t, "Superseded", resp["status"])
+}
+
+func TestUpdateStatus_Supersede_MissingSupersededBy(t *testing.T) {
+	superseder := &mockSuperseder{}
+	updater := &mockUpdater{}
+	repo := &mockRepo{}
+	srv := web.NewServer(repo, web.WithStatusUpdater(updater), web.WithSuperseder(superseder))
+
+	body := strings.NewReader(`{"status":"Superseded"}`)
+	req := httptest.NewRequest(http.MethodPatch, "/api/adr/2/status", body)
+	req.Header.Set("Content-Type", "application/json")
+	rec := httptest.NewRecorder()
+
+	srv.Handler().ServeHTTP(rec, req)
+
+	assert.Equal(t, http.StatusBadRequest, rec.Code)
+	assert.Contains(t, rec.Body.String(), "supersededBy is required")
+	assert.False(t, superseder.called)
+}
+
+func TestUpdateStatus_Supersede_NoSupersederConfigured(t *testing.T) {
+	updater := &mockUpdater{}
+	repo := &mockRepo{}
+	srv := web.NewServer(repo, web.WithStatusUpdater(updater))
+
+	body := strings.NewReader(`{"status":"Superseded","supersededBy":3}`)
+	req := httptest.NewRequest(http.MethodPatch, "/api/adr/2/status", body)
+	req.Header.Set("Content-Type", "application/json")
+	rec := httptest.NewRecorder()
+
+	srv.Handler().ServeHTTP(rec, req)
+
+	assert.Equal(t, http.StatusNotImplemented, rec.Code)
+	assert.Contains(t, rec.Body.String(), "supersede not supported")
+}
+
+func TestUpdateStatus_NonSuperseded_StillUsesUpdater(t *testing.T) {
+	superseder := &mockSuperseder{}
+	updater := &mockUpdater{
+		result: &adr.ADR{
+			Number:  1,
+			Title:   "Use Go",
+			Status:  adr.Accepted,
+			Date:    time.Date(2024, 1, 15, 0, 0, 0, 0, time.UTC),
+			Content: "# 1. Use Go\n\n## Status\n\nAccepted\n",
+		},
+	}
+	repo := &mockRepo{}
+	srv := web.NewServer(repo, web.WithStatusUpdater(updater), web.WithSuperseder(superseder))
+
+	body := strings.NewReader(`{"status":"Accepted"}`)
+	req := httptest.NewRequest(http.MethodPatch, "/api/adr/1/status", body)
+	req.Header.Set("Content-Type", "application/json")
+	rec := httptest.NewRecorder()
+
+	srv.Handler().ServeHTTP(rec, req)
+
+	assert.Equal(t, http.StatusOK, rec.Code)
+	assert.True(t, updater.called, "UpdateStatus should be called for non-Superseded")
+	assert.False(t, superseder.called, "Superseder should not be called for non-Superseded")
 }
 
 func trimNewline(s string) string {
