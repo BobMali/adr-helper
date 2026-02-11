@@ -341,12 +341,12 @@ func TestNewCmd_SupersedesMADRFull(t *testing.T) {
 	// Superseded ADR frontmatter updated
 	updated, err := os.ReadFile(filepath.Join(tmpDir, "docs/adr", "0001-use-go.md"))
 	require.NoError(t, err)
-	assert.Contains(t, string(updated), "status: \"superseded by [ADR-0002](0002-better.md)\"")
+	assert.Contains(t, string(updated), "status: \"superseded by [ADR-0002](0002-better.md)  \"")
 
 	// New ADR has proposed + supersedes in frontmatter
 	newContent, err := os.ReadFile(filepath.Join(tmpDir, "docs/adr", "0002-better.md"))
 	require.NoError(t, err)
-	assert.Contains(t, string(newContent), "status: \"proposed, supersedes [ADR-0001](0001-use-go.md)\"")
+	assert.Contains(t, string(newContent), "status: \"proposed, supersedes [ADR-0001](0001-use-go.md)  \"")
 }
 
 func TestNewCmd_SupersedesNoStatusInSupersededADR_ReturnsError(t *testing.T) {
@@ -399,7 +399,7 @@ func TestNewCmd_SupersedesMixedFormats(t *testing.T) {
 	// Superseded MADR full ADR updated correctly
 	updated, err := os.ReadFile(filepath.Join(tmpDir, "docs/adr", "0001-use-go.md"))
 	require.NoError(t, err)
-	assert.Contains(t, string(updated), "status: \"superseded by [ADR-0002](0002-better.md)\"")
+	assert.Contains(t, string(updated), "status: \"superseded by [ADR-0002](0002-better.md)  \"")
 
 	// New nygard ADR has Proposed status AND supersedes link
 	newContent, err := os.ReadFile(filepath.Join(tmpDir, "docs/adr", "0002-better.md"))

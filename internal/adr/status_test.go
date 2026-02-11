@@ -88,7 +88,7 @@ func TestSetSupersededBy_NygardFormat(t *testing.T) {
 
 	result, err := adr.SetSupersededBy(content, link)
 	require.NoError(t, err)
-	assert.Contains(t, result, "## Status\n\nSuperseded by [ADR-0006](0006-new.md)\n\n## Context")
+	assert.Contains(t, result, "## Status\n\nSuperseded by [ADR-0006](0006-new.md)  \n\n## Context")
 	assert.Contains(t, result, "Some context.")
 }
 
@@ -98,7 +98,7 @@ func TestSetSupersededBy_NygardWithPlaceholder(t *testing.T) {
 
 	result, err := adr.SetSupersededBy(content, link)
 	require.NoError(t, err)
-	assert.Contains(t, result, "## Status\n\nSuperseded by [ADR-0006](0006-new.md)\n\n## Context")
+	assert.Contains(t, result, "## Status\n\nSuperseded by [ADR-0006](0006-new.md)  \n\n## Context")
 }
 
 func TestSetSupersededBy_NygardStatusAtEndOfFile(t *testing.T) {
@@ -107,7 +107,7 @@ func TestSetSupersededBy_NygardStatusAtEndOfFile(t *testing.T) {
 
 	result, err := adr.SetSupersededBy(content, link)
 	require.NoError(t, err)
-	assert.Contains(t, result, "## Status\n\nSuperseded by [ADR-0006](0006-new.md)\n")
+	assert.Contains(t, result, "## Status\n\nSuperseded by [ADR-0006](0006-new.md)  \n")
 	assert.NotContains(t, result, "Accepted")
 }
 
@@ -128,7 +128,7 @@ func TestSetSupersededBy_MADRFullFrontmatter(t *testing.T) {
 
 	result, err := adr.SetSupersededBy(content, link)
 	require.NoError(t, err)
-	assert.Contains(t, result, "status: \"superseded by [ADR-0006](0006-new.md)\"")
+	assert.Contains(t, result, "status: \"superseded by [ADR-0006](0006-new.md)  \"")
 	assert.Contains(t, result, "Some context.")
 }
 
@@ -138,7 +138,7 @@ func TestSetSupersededBy_MADRFrontmatterScopedToBlock(t *testing.T) {
 
 	result, err := adr.SetSupersededBy(content, link)
 	require.NoError(t, err)
-	assert.Contains(t, result, "status: \"superseded by [ADR-0006](0006-new.md)\"")
+	assert.Contains(t, result, "status: \"superseded by [ADR-0006](0006-new.md)  \"")
 	assert.Contains(t, result, "status: this should not change")
 }
 
@@ -166,7 +166,7 @@ func TestSetSupersedes_NygardSingle(t *testing.T) {
 
 	result, err := adr.SetSupersedes(content, links)
 	require.NoError(t, err)
-	assert.Contains(t, result, "## Status\n\nProposed\n\nSupersedes [ADR-0001](0001-old.md)\n\n## Context")
+	assert.Contains(t, result, "## Status\n\nProposed\n\nSupersedes [ADR-0001](0001-old.md)  \n\n## Context")
 }
 
 func TestSetSupersedes_NygardMultiple(t *testing.T) {
@@ -178,7 +178,7 @@ func TestSetSupersedes_NygardMultiple(t *testing.T) {
 
 	result, err := adr.SetSupersedes(content, links)
 	require.NoError(t, err)
-	assert.Contains(t, result, "## Status\n\nProposed\n\nSupersedes [ADR-0001](0001-first.md)\nSupersedes [ADR-0005](0005-fifth.md)\n\n## Context")
+	assert.Contains(t, result, "## Status\n\nProposed\n\nSupersedes [ADR-0001](0001-first.md)  \nSupersedes [ADR-0005](0005-fifth.md)  \n\n## Context")
 }
 
 func TestSetSupersedes_MADRFullFrontmatter(t *testing.T) {
@@ -190,7 +190,7 @@ func TestSetSupersedes_MADRFullFrontmatter(t *testing.T) {
 
 	result, err := adr.SetSupersedes(content, links)
 	require.NoError(t, err)
-	assert.Contains(t, result, "status: \"proposed, supersedes [ADR-0001](0001-first.md), [ADR-0005](0005-fifth.md)\"")
+	assert.Contains(t, result, "status: \"proposed, supersedes [ADR-0001](0001-first.md), [ADR-0005](0005-fifth.md)  \"")
 }
 
 func TestSetSupersedes_NoStatusSection_ReturnsError(t *testing.T) {
@@ -218,5 +218,5 @@ func TestSetSupersedes_EmptyStatusSection(t *testing.T) {
 
 	result, err := adr.SetSupersedes(content, links)
 	require.NoError(t, err)
-	assert.Contains(t, result, "## Status\n\nSupersedes [ADR-0001](0001-old.md)\n\n## Context")
+	assert.Contains(t, result, "## Status\n\nSupersedes [ADR-0001](0001-old.md)  \n\n## Context")
 }
