@@ -65,15 +65,25 @@ func NewListCmd() *cobra.Command {
 					redStyle.EnableColor()
 				}
 
-				w := tabwriter.NewWriter(cmd.OutOrStdout(), 0, 0, 3, ' ', 0)
-				fmt.Fprintln(w, "Status\tCount")
+				// Compute column width from the longest visible status name.
+				colWidth := len("Status")
+				for _, s := range adr.AllStatuses() {
+					if n := len(s.String()); n > colWidth {
+						colWidth = n
+					}
+				}
+				colWidth += 3 // padding between columns
+
+				out := cmd.OutOrStdout()
+				fmt.Fprintf(out, "%-*s%s\n", colWidth, "Status", "Count")
 				for _, s := range adr.AllStatuses() {
 					label := statusColor(s.String(), greenStyle, yellowStyle, redStyle)
-					fmt.Fprintf(w, "%s\t%d\n", label, counts.ByStatus[s])
+					pad := colWidth - len(s.String())
+					fmt.Fprintf(out, "%s%*s%d\n", label, pad, "", counts.ByStatus[s])
 				}
-				fmt.Fprintln(w)
-				fmt.Fprintf(w, "Total\t%d\n", counts.Total)
-				return w.Flush()
+				fmt.Fprintln(out)
+				fmt.Fprintf(out, "%-*s%d\n", colWidth, "Total", counts.Total)
+				return nil
 			}
 
 			if jsonOutput {
