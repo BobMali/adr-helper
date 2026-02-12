@@ -22,6 +22,7 @@ type listJSON struct {
 func NewListCmd() *cobra.Command {
 	var plain bool
 	var jsonOutput bool
+	var search string
 
 	cmd := &cobra.Command{
 		Use:   "list",
@@ -37,6 +38,10 @@ func NewListCmd() *cobra.Command {
 			records, err := repo.List(cmd.Context())
 			if err != nil {
 				return err
+			}
+
+			if search != "" {
+				records = adr.FilterByQuery(records, search)
 			}
 
 			if jsonOutput {
@@ -87,5 +92,6 @@ func NewListCmd() *cobra.Command {
 
 	cmd.Flags().BoolVar(&plain, "plain", false, "disable colored output")
 	cmd.Flags().BoolVar(&jsonOutput, "json", false, "output as JSON array")
+	cmd.Flags().StringVarP(&search, "search", "s", "", "filter ADRs by title or number")
 	return cmd
 }

@@ -177,6 +177,119 @@ func TestListCmd_JSON_TakesPrecedenceOverPlain(t *testing.T) {
 	assert.Len(t, result, 1)
 }
 
+func TestListCmd_SearchByTitle(t *testing.T) {
+	tmpDir := chdirTemp(t)
+	initWorkspace(t, tmpDir, "docs/adr", "nygard")
+
+	adr1 := "# 1. Use Go\n\nDate: 2024-01-15\n\n## Status\n\nAccepted\n\n## Context\n\nContext.\n"
+	adr2 := "# 2. Use Chi Router\n\nDate: 2024-02-01\n\n## Status\n\nProposed\n\n## Context\n\nContext.\n"
+	adr3 := "# 3. Use PostgreSQL\n\nDate: 2024-03-10\n\n## Status\n\nAccepted\n\n## Context\n\nContext.\n"
+	require.NoError(t, os.WriteFile(filepath.Join(tmpDir, "docs/adr", "0001-use-go.md"), []byte(adr1), 0o644))
+	require.NoError(t, os.WriteFile(filepath.Join(tmpDir, "docs/adr", "0002-use-chi-router.md"), []byte(adr2), 0o644))
+	require.NoError(t, os.WriteFile(filepath.Join(tmpDir, "docs/adr", "0003-use-postgresql.md"), []byte(adr3), 0o644))
+
+	buf := new(bytes.Buffer)
+	root := cli.NewRootCmd()
+	root.SetOut(buf)
+	root.SetArgs([]string{"list", "--plain", "-s", "Chi"})
+
+	err := root.Execute()
+	require.NoError(t, err)
+
+	output := buf.String()
+	assert.Contains(t, output, "Use Chi Router")
+	assert.NotContains(t, output, "Use Go")
+	assert.NotContains(t, output, "Use PostgreSQL")
+}
+
+func TestListCmd_SearchByNumber(t *testing.T) {
+	tmpDir := chdirTemp(t)
+	initWorkspace(t, tmpDir, "docs/adr", "nygard")
+
+	adr1 := "# 1. Use Go\n\nDate: 2024-01-15\n\n## Status\n\nAccepted\n\n## Context\n\nContext.\n"
+	adr2 := "# 2. Use Chi Router\n\nDate: 2024-02-01\n\n## Status\n\nProposed\n\n## Context\n\nContext.\n"
+	require.NoError(t, os.WriteFile(filepath.Join(tmpDir, "docs/adr", "0001-use-go.md"), []byte(adr1), 0o644))
+	require.NoError(t, os.WriteFile(filepath.Join(tmpDir, "docs/adr", "0002-use-chi-router.md"), []byte(adr2), 0o644))
+
+	buf := new(bytes.Buffer)
+	root := cli.NewRootCmd()
+	root.SetOut(buf)
+	root.SetArgs([]string{"list", "--plain", "-s", "2"})
+
+	err := root.Execute()
+	require.NoError(t, err)
+
+	output := buf.String()
+	assert.Contains(t, output, "Use Chi Router")
+	assert.NotContains(t, output, "Use Go")
+}
+
+func TestListCmd_SearchNoResults(t *testing.T) {
+	tmpDir := chdirTemp(t)
+	initWorkspace(t, tmpDir, "docs/adr", "nygard")
+
+	adr1 := "# 1. Use Go\n\nDate: 2024-01-15\n\n## Status\n\nAccepted\n\n## Context\n\nContext.\n"
+	require.NoError(t, os.WriteFile(filepath.Join(tmpDir, "docs/adr", "0001-use-go.md"), []byte(adr1), 0o644))
+
+	buf := new(bytes.Buffer)
+	root := cli.NewRootCmd()
+	root.SetOut(buf)
+	root.SetArgs([]string{"list", "--plain", "--search", "nonexistent"})
+
+	err := root.Execute()
+	require.NoError(t, err)
+
+	output := buf.String()
+	assert.Contains(t, output, "ID")
+	lines := strings.Split(strings.TrimSpace(output), "\n")
+	assert.Equal(t, 1, len(lines), "expected only header line when no results match")
+}
+
+func TestListCmd_SearchJSON(t *testing.T) {
+	tmpDir := chdirTemp(t)
+	initWorkspace(t, tmpDir, "docs/adr", "nygard")
+
+	adr1 := "# 1. Use Go\n\nDate: 2024-01-15\n\n## Status\n\nAccepted\n\n## Context\n\nContext.\n"
+	adr2 := "# 2. Use Chi Router\n\nDate: 2024-02-01\n\n## Status\n\nProposed\n\n## Context\n\nContext.\n"
+	require.NoError(t, os.WriteFile(filepath.Join(tmpDir, "docs/adr", "0001-use-go.md"), []byte(adr1), 0o644))
+	require.NoError(t, os.WriteFile(filepath.Join(tmpDir, "docs/adr", "0002-use-chi-router.md"), []byte(adr2), 0o644))
+
+	buf := new(bytes.Buffer)
+	root := cli.NewRootCmd()
+	root.SetOut(buf)
+	root.SetArgs([]string{"list", "--json", "--search", "Go"})
+
+	err := root.Execute()
+	require.NoError(t, err)
+
+	var result []map[string]interface{}
+	require.NoError(t, json.Unmarshal(buf.Bytes(), &result))
+	require.Len(t, result, 1)
+	assert.Equal(t, "Use Go", result[0]["title"])
+}
+
+func TestListCmd_SearchCaseInsensitive(t *testing.T) {
+	tmpDir := chdirTemp(t)
+	initWorkspace(t, tmpDir, "docs/adr", "nygard")
+
+	adr1 := "# 1. Use Go\n\nDate: 2024-01-15\n\n## Status\n\nAccepted\n\n## Context\n\nContext.\n"
+	adr2 := "# 2. Use Chi Router\n\nDate: 2024-02-01\n\n## Status\n\nProposed\n\n## Context\n\nContext.\n"
+	require.NoError(t, os.WriteFile(filepath.Join(tmpDir, "docs/adr", "0001-use-go.md"), []byte(adr1), 0o644))
+	require.NoError(t, os.WriteFile(filepath.Join(tmpDir, "docs/adr", "0002-use-chi-router.md"), []byte(adr2), 0o644))
+
+	buf := new(bytes.Buffer)
+	root := cli.NewRootCmd()
+	root.SetOut(buf)
+	root.SetArgs([]string{"list", "--plain", "-s", "chi router"})
+
+	err := root.Execute()
+	require.NoError(t, err)
+
+	output := buf.String()
+	assert.Contains(t, output, "Use Chi Router")
+	assert.NotContains(t, output, "Use Go")
+}
+
 func TestListCmd_RejectsExtraArgs(t *testing.T) {
 	chdirTemp(t)
 
