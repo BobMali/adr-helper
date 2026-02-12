@@ -28,6 +28,7 @@ const supersededBy = ref<number | null>(null)
 const availableADRs = ref<ADRSummary[]>([])
 const loadingADRs = ref(false)
 const supersedingSelectRef = ref<HTMLSelectElement | null>(null)
+let supersedeFetchController: AbortController | null = null
 
 const renderedContent = computed(() => {
   if (!adr.value?.content) return ''
@@ -49,6 +50,7 @@ onUnmounted(() => {
   if (feedbackTimer) {
     clearTimeout(feedbackTimer)
   }
+  supersedeFetchController?.abort()
 })
 
 onMounted(async () => {
@@ -86,16 +88,25 @@ watch(selectedStatus, async (newStatus) => {
   }
 
   if (newStatus === 'Superseded') {
+    supersedeFetchController?.abort()
+    supersedeFetchController = new AbortController()
+    const currentController = supersedeFetchController
+
     pendingSuperseded.value = true
     supersededBy.value = null
     loadingADRs.value = true
     try {
-      const allADRs = await fetchADRs()
+      const allADRs = await fetchADRs(undefined, currentController.signal)
+      if (currentController !== supersedeFetchController) return
       availableADRs.value = allADRs.filter(a => a.number !== props.number)
-    } catch {
+    } catch (e) {
+      if (e instanceof DOMException && e.name === 'AbortError') return
+      if (currentController !== supersedeFetchController) return
       availableADRs.value = []
     } finally {
-      loadingADRs.value = false
+      if (currentController === supersedeFetchController) {
+        loadingADRs.value = false
+      }
     }
     await nextTick()
     supersedingSelectRef.value?.focus()
@@ -135,6 +146,8 @@ async function doStatusUpdate(newStatus: string, options?: { supersededBy?: numb
 }
 
 function cancelSupersede() {
+  supersedeFetchController?.abort()
+  supersedeFetchController = null
   pendingSuperseded.value = false
   supersededBy.value = null
   availableADRs.value = []

@@ -517,6 +517,86 @@ func TestUpdateStatus_NonSuperseded_StillUsesUpdater(t *testing.T) {
 	assert.False(t, superseder.called, "Superseder should not be called for non-Superseded")
 }
 
+// --- GET /api/adr?q= (filter) ---
+
+func TestListADRs_FilterByTitleQuery(t *testing.T) {
+	repo := &mockRepo{adrs: []adr.ADR{
+		{Number: 1, Title: "Use Go", Status: adr.Accepted},
+		{Number: 2, Title: "Use Chi Router", Status: adr.Proposed},
+		{Number: 3, Title: "Use PostgreSQL", Status: adr.Accepted},
+	}}
+	srv := web.NewServer(repo)
+
+	req := httptest.NewRequest(http.MethodGet, "/api/adr?q=chi", nil)
+	rec := httptest.NewRecorder()
+
+	srv.Handler().ServeHTTP(rec, req)
+
+	assert.Equal(t, http.StatusOK, rec.Code)
+
+	var body []map[string]interface{}
+	err := json.Unmarshal(rec.Body.Bytes(), &body)
+	require.NoError(t, err)
+	require.Len(t, body, 1)
+	assert.Equal(t, "Use Chi Router", body[0]["title"])
+}
+
+func TestListADRs_FilterByNumber(t *testing.T) {
+	repo := &mockRepo{adrs: []adr.ADR{
+		{Number: 12, Title: "Use PostgreSQL", Status: adr.Accepted},
+		{Number: 120, Title: "Use Redis", Status: adr.Proposed},
+	}}
+	srv := web.NewServer(repo)
+
+	req := httptest.NewRequest(http.MethodGet, "/api/adr?q=12", nil)
+	rec := httptest.NewRecorder()
+
+	srv.Handler().ServeHTTP(rec, req)
+
+	assert.Equal(t, http.StatusOK, rec.Code)
+
+	var body []map[string]interface{}
+	err := json.Unmarshal(rec.Body.Bytes(), &body)
+	require.NoError(t, err)
+	require.Len(t, body, 1)
+	assert.Equal(t, float64(12), body[0]["number"])
+}
+
+func TestListADRs_EmptyQueryReturnsAll(t *testing.T) {
+	repo := &mockRepo{adrs: []adr.ADR{
+		{Number: 1, Title: "Use Go", Status: adr.Accepted},
+		{Number: 2, Title: "Use Chi", Status: adr.Proposed},
+	}}
+	srv := web.NewServer(repo)
+
+	req := httptest.NewRequest(http.MethodGet, "/api/adr?q=", nil)
+	rec := httptest.NewRecorder()
+
+	srv.Handler().ServeHTTP(rec, req)
+
+	assert.Equal(t, http.StatusOK, rec.Code)
+
+	var body []map[string]interface{}
+	err := json.Unmarshal(rec.Body.Bytes(), &body)
+	require.NoError(t, err)
+	assert.Len(t, body, 2)
+}
+
+func TestListADRs_FilterNoMatches_ReturnsEmptyArray(t *testing.T) {
+	repo := &mockRepo{adrs: []adr.ADR{
+		{Number: 1, Title: "Use Go", Status: adr.Accepted},
+	}}
+	srv := web.NewServer(repo)
+
+	req := httptest.NewRequest(http.MethodGet, "/api/adr?q=zzz", nil)
+	rec := httptest.NewRecorder()
+
+	srv.Handler().ServeHTTP(rec, req)
+
+	assert.Equal(t, http.StatusOK, rec.Code)
+	assert.Equal(t, "[]", trimNewline(rec.Body.String()))
+}
+
 func trimNewline(s string) string {
 	if len(s) > 0 && s[len(s)-1] == '\n' {
 		return s[:len(s)-1]

@@ -4,6 +4,9 @@ async function apiFetch(url: string, init?: RequestInit): Promise<Response> {
   try {
     return init ? await fetch(url, init) : await fetch(url)
   } catch (err) {
+    if (err instanceof DOMException && err.name === 'AbortError') {
+      throw err
+    }
     if (err instanceof TypeError) {
       throw new Error('Network error: unable to reach server')
     }
@@ -11,8 +14,13 @@ async function apiFetch(url: string, init?: RequestInit): Promise<Response> {
   }
 }
 
-export async function fetchADRs(): Promise<ADRSummary[]> {
-  const res = await apiFetch('/api/adr')
+export async function fetchADRs(query?: string, signal?: AbortSignal): Promise<ADRSummary[]> {
+  let url = '/api/adr'
+  if (query) {
+    url += `?q=${encodeURIComponent(query)}`
+  }
+  const init: RequestInit | undefined = signal ? { signal } : undefined
+  const res = await apiFetch(url, init)
   if (!res.ok) {
     throw new Error(`Failed to fetch ADRs: ${res.status}`)
   }

@@ -438,6 +438,57 @@ describe('ADRDetailView', () => {
     })
   })
 
+  describe('supersede race condition prevention', () => {
+    beforeEach(() => {
+      mockedFetchADR.mockResolvedValue({ ...sampleDetail })
+      mockedFetchStatuses.mockResolvedValue([...sampleStatuses])
+    })
+
+    it('cancels previous fetchADRs when cancel is clicked during slow fetch', async () => {
+      let resolveFirst!: (v: ADRSummary[]) => void
+      mockedFetchADRs.mockImplementationOnce(
+        () => new Promise<ADRSummary[]>(r => { resolveFirst = r }),
+      )
+
+      const { wrapper } = await mountView()
+      await flushPromises()
+
+      // Select Superseded — fires slow fetch
+      await wrapper.find('select#status-select').setValue('Superseded')
+      await nextTick()
+
+      // Click Cancel — should abort the in-flight fetch
+      const cancelBtn = wrapper.findAll('button').find(b => b.text() === 'Cancel')!
+      await cancelBtn.trigger('click')
+      await nextTick()
+
+      // Resolve the stale fetch after cancellation
+      resolveFirst([
+        { number: 3, title: 'Stale ADR', status: 'Accepted', date: '2025-01-01' },
+      ])
+      await flushPromises()
+
+      // Panel should be hidden, stale results should not populate availableADRs
+      expect(wrapper.find('[role="group"]').exists()).toBe(false)
+      expect(wrapper.text()).not.toContain('Stale ADR')
+    })
+
+    it('does NOT show AbortError when supersede fetch is cancelled', async () => {
+      mockedFetchADRs.mockRejectedValueOnce(
+        new DOMException('The operation was aborted', 'AbortError'),
+      )
+
+      const { wrapper } = await mountView()
+      await flushPromises()
+
+      await wrapper.find('select#status-select').setValue('Superseded')
+      await flushPromises()
+
+      expect(wrapper.text()).not.toContain('aborted')
+      expect(wrapper.text()).not.toContain('AbortError')
+    })
+  })
+
   describe('unmount cleanup', () => {
     it('clears feedback timer on unmount', async () => {
       vi.useFakeTimers()

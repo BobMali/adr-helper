@@ -145,6 +145,10 @@ func (s *Server) handleListADRs(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	if q := r.URL.Query().Get("q"); q != "" {
+		adrs = adr.FilterByQuery(adrs, q)
+	}
+
 	resp := make([]adrResponse, len(adrs))
 	for i, a := range adrs {
 		resp[i] = toResponse(a)

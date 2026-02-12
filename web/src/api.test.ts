@@ -62,6 +62,38 @@ describe('fetchADRs', () => {
   })
 })
 
+describe('fetchADRs with AbortSignal', () => {
+  it('passes AbortSignal to fetch when provided', async () => {
+    const data = [{ number: 1, title: 'Use X', status: 'Accepted', date: '2025-01-01' }]
+    mockFetchOk(data)
+    const controller = new AbortController()
+
+    await fetchADRs(undefined, controller.signal)
+
+    expect(fetch).toHaveBeenCalledWith('/api/adr', { signal: controller.signal })
+  })
+
+  it('passes signal with query param when both provided', async () => {
+    const data = [{ number: 1, title: 'Use X', status: 'Accepted', date: '2025-01-01' }]
+    mockFetchOk(data)
+    const controller = new AbortController()
+
+    await fetchADRs('test', controller.signal)
+
+    expect(fetch).toHaveBeenCalledWith('/api/adr?q=test', { signal: controller.signal })
+  })
+
+  it('does NOT catch AbortError — allows it to propagate', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn().mockRejectedValue(new DOMException('The operation was aborted', 'AbortError')),
+    )
+
+    await expect(fetchADRs()).rejects.toThrow('The operation was aborted')
+    await expect(fetchADRs()).rejects.toThrow(DOMException)
+  })
+})
+
 describe('fetchADR', () => {
   it('GETs /api/adr/{n} and returns ADRDetail', async () => {
     const data = { number: 3, title: 'Use Y', status: 'Proposed', date: '2025-02-01', content: '# Y' }
