@@ -23,6 +23,7 @@ func NewListCmd() *cobra.Command {
 	var plain bool
 	var jsonOutput bool
 	var search string
+	var count bool
 
 	cmd := &cobra.Command{
 		Use:   "list",
@@ -42,6 +43,37 @@ func NewListCmd() *cobra.Command {
 
 			if search != "" {
 				records = adr.FilterByQuery(records, search)
+			}
+
+			if count {
+				counts := adr.CountByStatus(records)
+				if jsonOutput {
+					return json.NewEncoder(cmd.OutOrStdout()).Encode(counts)
+				}
+
+				noColor := plain || os.Getenv("NO_COLOR") != ""
+				greenStyle := color.New(color.FgGreen)
+				yellowStyle := color.New(color.FgYellow)
+				redStyle := color.New(color.FgRed)
+				if noColor {
+					greenStyle.DisableColor()
+					yellowStyle.DisableColor()
+					redStyle.DisableColor()
+				} else {
+					greenStyle.EnableColor()
+					yellowStyle.EnableColor()
+					redStyle.EnableColor()
+				}
+
+				w := tabwriter.NewWriter(cmd.OutOrStdout(), 0, 0, 3, ' ', 0)
+				fmt.Fprintln(w, "Status\tCount")
+				for _, s := range adr.AllStatuses() {
+					label := statusColor(s.String(), greenStyle, yellowStyle, redStyle)
+					fmt.Fprintf(w, "%s\t%d\n", label, counts.ByStatus[s])
+				}
+				fmt.Fprintln(w)
+				fmt.Fprintf(w, "Total\t%d\n", counts.Total)
+				return w.Flush()
 			}
 
 			if jsonOutput {
@@ -93,5 +125,6 @@ func NewListCmd() *cobra.Command {
 	cmd.Flags().BoolVar(&plain, "plain", false, "disable colored output")
 	cmd.Flags().BoolVar(&jsonOutput, "json", false, "output as JSON array")
 	cmd.Flags().StringVarP(&search, "search", "s", "", "filter ADRs by title or number")
+	cmd.Flags().BoolVar(&count, "count", false, "show status counts instead of listing ADRs")
 	return cmd
 }

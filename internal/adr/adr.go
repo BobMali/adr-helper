@@ -43,6 +43,12 @@ func (s Status) MarshalJSON() ([]byte, error) {
 	return json.Marshal(s.String())
 }
 
+// MarshalText implements encoding.TextMarshaler so that map[Status]int
+// keys serialize as string names (e.g. "Proposed") in JSON.
+func (s Status) MarshalText() ([]byte, error) {
+	return []byte(s.String()), nil
+}
+
 // AllStatuses returns all valid ADR statuses.
 func AllStatuses() []Status {
 	return []Status{Proposed, Accepted, Rejected, Deprecated, Superseded}

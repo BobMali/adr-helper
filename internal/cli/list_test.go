@@ -290,6 +290,146 @@ func TestListCmd_SearchCaseInsensitive(t *testing.T) {
 	assert.NotContains(t, output, "Use Go")
 }
 
+func TestListCmd_Count_ShowsStatusCounts(t *testing.T) {
+	tmpDir := chdirTemp(t)
+	initWorkspace(t, tmpDir, "docs/adr", "nygard")
+
+	adr1 := "# 1. Use Go\n\nDate: 2024-01-15\n\n## Status\n\nAccepted\n\n## Context\n\nContext.\n"
+	adr2 := "# 2. Use Chi Router\n\nDate: 2024-02-01\n\n## Status\n\nAccepted\n\n## Context\n\nContext.\n"
+	adr3 := "# 3. Use PostgreSQL\n\nDate: 2024-03-10\n\n## Status\n\nProposed\n\n## Context\n\nContext.\n"
+	require.NoError(t, os.WriteFile(filepath.Join(tmpDir, "docs/adr", "0001-use-go.md"), []byte(adr1), 0o644))
+	require.NoError(t, os.WriteFile(filepath.Join(tmpDir, "docs/adr", "0002-use-chi-router.md"), []byte(adr2), 0o644))
+	require.NoError(t, os.WriteFile(filepath.Join(tmpDir, "docs/adr", "0003-use-postgresql.md"), []byte(adr3), 0o644))
+
+	buf := new(bytes.Buffer)
+	root := cli.NewRootCmd()
+	root.SetOut(buf)
+	root.SetArgs([]string{"list", "--count", "--plain"})
+
+	err := root.Execute()
+	require.NoError(t, err)
+
+	output := buf.String()
+	assert.Contains(t, output, "Proposed")
+	assert.Contains(t, output, "Accepted")
+	assert.Contains(t, output, "Total")
+	// Check specific counts appear: 2 Accepted, 1 Proposed
+	lines := strings.Split(output, "\n")
+	for _, line := range lines {
+		if strings.Contains(line, "Accepted") {
+			assert.Contains(t, line, "2")
+		}
+		if strings.Contains(line, "Proposed") {
+			assert.Contains(t, line, "1")
+		}
+		if strings.Contains(line, "Total") {
+			assert.Contains(t, line, "3")
+		}
+	}
+}
+
+func TestListCmd_Count_EmptyDirectory(t *testing.T) {
+	tmpDir := chdirTemp(t)
+	initWorkspace(t, tmpDir, "docs/adr", "nygard")
+
+	buf := new(bytes.Buffer)
+	root := cli.NewRootCmd()
+	root.SetOut(buf)
+	root.SetArgs([]string{"list", "--count", "--plain"})
+
+	err := root.Execute()
+	require.NoError(t, err)
+
+	output := buf.String()
+	assert.Contains(t, output, "Total")
+	// Total should be 0
+	for _, line := range strings.Split(output, "\n") {
+		if strings.Contains(line, "Total") {
+			assert.Contains(t, line, "0")
+		}
+	}
+}
+
+func TestListCmd_Count_JSON(t *testing.T) {
+	tmpDir := chdirTemp(t)
+	initWorkspace(t, tmpDir, "docs/adr", "nygard")
+
+	adr1 := "# 1. Use Go\n\nDate: 2024-01-15\n\n## Status\n\nAccepted\n\n## Context\n\nContext.\n"
+	adr2 := "# 2. Use Chi Router\n\nDate: 2024-02-01\n\n## Status\n\nProposed\n\n## Context\n\nContext.\n"
+	require.NoError(t, os.WriteFile(filepath.Join(tmpDir, "docs/adr", "0001-use-go.md"), []byte(adr1), 0o644))
+	require.NoError(t, os.WriteFile(filepath.Join(tmpDir, "docs/adr", "0002-use-chi-router.md"), []byte(adr2), 0o644))
+
+	buf := new(bytes.Buffer)
+	root := cli.NewRootCmd()
+	root.SetOut(buf)
+	root.SetArgs([]string{"list", "--count", "--json"})
+
+	err := root.Execute()
+	require.NoError(t, err)
+
+	var result map[string]interface{}
+	require.NoError(t, json.Unmarshal(buf.Bytes(), &result))
+	assert.Equal(t, float64(2), result["total"])
+
+	byStatus, ok := result["byStatus"].(map[string]interface{})
+	require.True(t, ok)
+	assert.Equal(t, float64(1), byStatus["Accepted"])
+	assert.Equal(t, float64(1), byStatus["Proposed"])
+	assert.Equal(t, float64(0), byStatus["Rejected"])
+}
+
+func TestListCmd_Count_WithSearch(t *testing.T) {
+	tmpDir := chdirTemp(t)
+	initWorkspace(t, tmpDir, "docs/adr", "nygard")
+
+	adr1 := "# 1. Use Go\n\nDate: 2024-01-15\n\n## Status\n\nAccepted\n\n## Context\n\nContext.\n"
+	adr2 := "# 2. Use Chi Router\n\nDate: 2024-02-01\n\n## Status\n\nProposed\n\n## Context\n\nContext.\n"
+	adr3 := "# 3. Use Go Modules\n\nDate: 2024-03-10\n\n## Status\n\nAccepted\n\n## Context\n\nContext.\n"
+	require.NoError(t, os.WriteFile(filepath.Join(tmpDir, "docs/adr", "0001-use-go.md"), []byte(adr1), 0o644))
+	require.NoError(t, os.WriteFile(filepath.Join(tmpDir, "docs/adr", "0002-use-chi-router.md"), []byte(adr2), 0o644))
+	require.NoError(t, os.WriteFile(filepath.Join(tmpDir, "docs/adr", "0003-use-go-modules.md"), []byte(adr3), 0o644))
+
+	buf := new(bytes.Buffer)
+	root := cli.NewRootCmd()
+	root.SetOut(buf)
+	root.SetArgs([]string{"list", "--count", "--plain", "-s", "Go"})
+
+	err := root.Execute()
+	require.NoError(t, err)
+
+	output := buf.String()
+	// Only 2 ADRs match "Go": #1 and #3, both Accepted
+	for _, line := range strings.Split(output, "\n") {
+		if strings.Contains(line, "Total") {
+			assert.Contains(t, line, "2")
+		}
+		if strings.Contains(line, "Accepted") {
+			assert.Contains(t, line, "2")
+		}
+		if strings.Contains(line, "Proposed") {
+			assert.Contains(t, line, "0")
+		}
+	}
+}
+
+func TestListCmd_Count_PlainSuppressesANSI(t *testing.T) {
+	tmpDir := chdirTemp(t)
+	initWorkspace(t, tmpDir, "docs/adr", "nygard")
+
+	adr1 := "# 1. Use Go\n\nDate: 2024-01-15\n\n## Status\n\nAccepted\n\n## Context\n\nContext.\n"
+	require.NoError(t, os.WriteFile(filepath.Join(tmpDir, "docs/adr", "0001-use-go.md"), []byte(adr1), 0o644))
+
+	buf := new(bytes.Buffer)
+	root := cli.NewRootCmd()
+	root.SetOut(buf)
+	root.SetArgs([]string{"list", "--count", "--plain"})
+
+	err := root.Execute()
+	require.NoError(t, err)
+
+	assert.NotContains(t, buf.String(), "\x1b[")
+}
+
 func TestListCmd_RejectsExtraArgs(t *testing.T) {
 	chdirTemp(t)
 
