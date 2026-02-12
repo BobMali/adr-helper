@@ -40,6 +40,17 @@ describe('ADRListView', () => {
       const wrapper = mount(ADRListView, { global: { plugins: [router] } })
       expect(wrapper.text()).toContain('Loading')
     })
+
+    it('loading indicator has role="status" for screen readers', () => {
+      mockedFetchADRs.mockReturnValue(new Promise(() => {}))
+      const router = makeRouter()
+      router.push('/')
+      const wrapper = mount(ADRListView, { global: { plugins: [router] } })
+
+      const loadingEl = wrapper.find('[role="status"]')
+      expect(loadingEl.exists()).toBe(true)
+      expect(loadingEl.text()).toContain('Loading')
+    })
   })
 
   describe('error state', () => {
@@ -57,6 +68,45 @@ describe('ADRListView', () => {
       await flushPromises()
 
       expect(wrapper.text()).toContain('Unknown error')
+    })
+
+    it('shows a retry button when fetch fails', async () => {
+      mockedFetchADRs.mockRejectedValue(new Error('Network down'))
+      const wrapper = await mountView()
+      await flushPromises()
+
+      const retryBtn = wrapper.find('button')
+      expect(retryBtn.exists()).toBe(true)
+      expect(retryBtn.text()).toBe('Retry')
+    })
+
+    it('clicking retry re-fetches and shows data on success', async () => {
+      mockedFetchADRs.mockRejectedValueOnce(new Error('Network down'))
+      const wrapper = await mountView()
+      await flushPromises()
+      expect(wrapper.text()).toContain('Network down')
+
+      mockedFetchADRs.mockResolvedValueOnce([
+        { number: 1, title: 'Use PostgreSQL', status: 'Accepted', date: '2025-01-15' },
+      ])
+      await wrapper.find('button').trigger('click')
+      await flushPromises()
+
+      expect(wrapper.text()).not.toContain('Network down')
+      expect(wrapper.text()).toContain('Use PostgreSQL')
+    })
+
+    it('clicking retry shows loading state during re-fetch', async () => {
+      mockedFetchADRs.mockRejectedValueOnce(new Error('Network down'))
+      const wrapper = await mountView()
+      await flushPromises()
+
+      mockedFetchADRs.mockReturnValueOnce(new Promise(() => {}))
+      await wrapper.find('button').trigger('click')
+      await flushPromises()
+
+      expect(wrapper.text()).toContain('Loading')
+      expect(wrapper.text()).not.toContain('Network down')
     })
   })
 
@@ -93,6 +143,18 @@ describe('ADRListView', () => {
       expect(wrapper.text()).toContain('Use Redis')
       expect(wrapper.text()).toContain('Proposed')
       expect(wrapper.text()).toContain('2025-02-01')
+    })
+
+    it('each link has an aria-label with ADR number and title', async () => {
+      const wrapper = await mountView()
+      await flushPromises()
+
+      const links = wrapper.findAll('a')
+      const link1 = links.find(l => l.attributes('href') === '/adr/1')!
+      const link2 = links.find(l => l.attributes('href') === '/adr/2')!
+
+      expect(link1.attributes('aria-label')).toBe('ADR #1: Use PostgreSQL')
+      expect(link2.attributes('aria-label')).toBe('ADR #2: Use Redis')
     })
 
     it('links to /adr/{number} for each ADR', async () => {

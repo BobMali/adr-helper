@@ -8,7 +8,9 @@ const adrs = ref<ADRSummary[]>([])
 const loading = ref(true)
 const error = ref('')
 
-onMounted(async () => {
+async function loadADRs() {
+  loading.value = true
+  error.value = ''
   try {
     adrs.value = await fetchADRs()
   } catch (e) {
@@ -16,7 +18,9 @@ onMounted(async () => {
   } finally {
     loading.value = false
   }
-})
+}
+
+onMounted(loadADRs)
 
 function statusDotClass(status: string): string {
   const s = status.toLowerCase()
@@ -39,13 +43,19 @@ function statusTextClass(status: string): string {
   </header>
 
   <!-- Loading -->
-  <div v-if="loading" class="text-center py-16 text-gray-500 dark:text-gray-400">
+  <div v-if="loading" role="status" class="text-center py-16 text-gray-500 dark:text-gray-400">
     Loading…
   </div>
 
   <!-- Error -->
   <div v-else-if="error" class="text-center py-16">
     <p class="text-red-600 dark:text-red-400">{{ error }}</p>
+    <button
+      class="mt-4 inline-block text-blue-600 dark:text-blue-400 hover:underline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-blue-500"
+      @click="loadADRs"
+    >
+      Retry
+    </button>
   </div>
 
   <!-- Empty state -->
@@ -62,6 +72,7 @@ function statusTextClass(status: string): string {
     >
       <RouterLink
         :to="{ name: 'detail', params: { number: adr.number } }"
+        :aria-label="`ADR #${adr.number}: ${adr.title}`"
         class="flex items-center gap-4 py-3 px-2 sm:px-0 hover:bg-gray-50 dark:hover:bg-gray-900 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-blue-500 transition-colors"
       >
         <span class="w-12 shrink-0 text-sm font-mono text-gray-500 dark:text-gray-400">

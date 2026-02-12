@@ -159,7 +159,7 @@ function onSelectorKeydown(event: KeyboardEvent) {
 
 <template>
   <!-- Loading -->
-  <div v-if="loading" class="text-center py-16 text-gray-500 dark:text-gray-400">
+  <div v-if="loading" role="status" class="text-center py-16 text-gray-500 dark:text-gray-400">
     Loading…
   </div>
 

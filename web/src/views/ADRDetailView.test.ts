@@ -77,6 +77,21 @@ describe('ADRDetailView', () => {
       })
       expect(wrapper.text()).toContain('Loading')
     })
+
+    it('loading indicator has role="status" for screen readers', () => {
+      mockedFetchADR.mockReturnValue(new Promise(() => {}))
+      mockedFetchStatuses.mockReturnValue(new Promise(() => {}))
+      const router = makeRouter()
+      router.push('/adr/5')
+      const wrapper = mount(ADRDetailView, {
+        props: { number: 5 },
+        global: { plugins: [router] },
+      })
+
+      const loadingEl = wrapper.find('[role="status"]')
+      expect(loadingEl.exists()).toBe(true)
+      expect(loadingEl.text()).toContain('Loading')
+    })
   })
 
   describe('not found', () => {

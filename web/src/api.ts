@@ -38,12 +38,17 @@ export async function fetchStatuses(): Promise<string[]> {
   return res.json()
 }
 
+interface UpdateStatusPayload {
+  status: string
+  supersededBy?: number
+}
+
 export async function updateADRStatus(
   number: number,
   status: string,
   options?: { supersededBy?: number },
 ): Promise<ADRDetail> {
-  const payload: Record<string, unknown> = { status }
+  const payload: UpdateStatusPayload = { status }
   if (options?.supersededBy != null) {
     payload.supersededBy = options.supersededBy
   }
