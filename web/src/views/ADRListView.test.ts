@@ -1,13 +1,15 @@
 import { mount, flushPromises } from '@vue/test-utils'
 import { createRouter, createMemoryHistory } from 'vue-router'
 import ADRListView from './ADRListView.vue'
-import { fetchADRs } from '../api'
+import { fetchADRs, fetchStatuses } from '../api'
 
 vi.mock('../api', () => ({
   fetchADRs: vi.fn(),
+  fetchStatuses: vi.fn(),
 }))
 
 const mockedFetchADRs = fetchADRs as ReturnType<typeof vi.fn>
+const mockedFetchStatuses = fetchStatuses as ReturnType<typeof vi.fn>
 
 function makeRouter() {
   return createRouter({
@@ -19,12 +21,12 @@ function makeRouter() {
   })
 }
 
-async function mountView() {
+async function mountView(initialPath = '/') {
   const router = makeRouter()
-  router.push('/')
+  router.push(initialPath)
   await router.isReady()
   const wrapper = mount(ADRListView, { global: { plugins: [router] } })
-  return wrapper
+  return { wrapper, router }
 }
 
 afterEach(() => {
@@ -32,6 +34,10 @@ afterEach(() => {
 })
 
 describe('ADRListView', () => {
+  beforeEach(() => {
+    mockedFetchStatuses.mockResolvedValue(['Accepted', 'Proposed', 'Rejected', 'Deprecated', 'Superseded'])
+  })
+
   describe('loading state', () => {
     it('shows "Loading" before fetch resolves', () => {
       mockedFetchADRs.mockReturnValue(new Promise(() => {})) // never resolves
@@ -47,16 +53,17 @@ describe('ADRListView', () => {
       router.push('/')
       const wrapper = mount(ADRListView, { global: { plugins: [router] } })
 
-      const loadingEl = wrapper.find('[role="status"]')
-      expect(loadingEl.exists()).toBe(true)
-      expect(loadingEl.text()).toContain('Loading')
+      const statusEls = wrapper.findAll('[role="status"]')
+      const loadingEl = statusEls.find(el => el.text().includes('Loading'))
+      expect(loadingEl).toBeDefined()
+      expect(loadingEl!.text()).toContain('Loading')
     })
   })
 
   describe('error state', () => {
     it('shows error message on fetch rejection', async () => {
       mockedFetchADRs.mockRejectedValue(new Error('Network down'))
-      const wrapper = await mountView()
+      const { wrapper } = await mountView()
       await flushPromises()
 
       expect(wrapper.text()).toContain('Network down')
@@ -64,7 +71,7 @@ describe('ADRListView', () => {
 
     it('shows "Unknown error" for non-Error rejection', async () => {
       mockedFetchADRs.mockRejectedValue('something weird')
-      const wrapper = await mountView()
+      const { wrapper } = await mountView()
       await flushPromises()
 
       expect(wrapper.text()).toContain('Unknown error')
@@ -72,24 +79,26 @@ describe('ADRListView', () => {
 
     it('shows a retry button when fetch fails', async () => {
       mockedFetchADRs.mockRejectedValue(new Error('Network down'))
-      const wrapper = await mountView()
+      const { wrapper } = await mountView()
       await flushPromises()
 
-      const retryBtn = wrapper.find('button')
-      expect(retryBtn.exists()).toBe(true)
-      expect(retryBtn.text()).toBe('Retry')
+      const buttons = wrapper.findAll('button')
+      const retryBtn = buttons.find(b => b.text() === 'Retry')
+      expect(retryBtn).toBeDefined()
+      expect(retryBtn!.text()).toBe('Retry')
     })
 
     it('clicking retry re-fetches and shows data on success', async () => {
       mockedFetchADRs.mockRejectedValueOnce(new Error('Network down'))
-      const wrapper = await mountView()
+      const { wrapper } = await mountView()
       await flushPromises()
       expect(wrapper.text()).toContain('Network down')
 
       mockedFetchADRs.mockResolvedValueOnce([
         { number: 1, title: 'Use PostgreSQL', status: 'Accepted', date: '2025-01-15' },
       ])
-      await wrapper.find('button').trigger('click')
+      const retryBtn = wrapper.findAll('button').find(b => b.text() === 'Retry')!
+      await retryBtn.trigger('click')
       await flushPromises()
 
       expect(wrapper.text()).not.toContain('Network down')
@@ -98,11 +107,12 @@ describe('ADRListView', () => {
 
     it('clicking retry shows loading state during re-fetch', async () => {
       mockedFetchADRs.mockRejectedValueOnce(new Error('Network down'))
-      const wrapper = await mountView()
+      const { wrapper } = await mountView()
       await flushPromises()
 
       mockedFetchADRs.mockReturnValueOnce(new Promise(() => {}))
-      await wrapper.find('button').trigger('click')
+      const retryBtn = wrapper.findAll('button').find(b => b.text() === 'Retry')!
+      await retryBtn.trigger('click')
       await flushPromises()
 
       expect(wrapper.text()).toContain('Loading')
@@ -113,7 +123,7 @@ describe('ADRListView', () => {
   describe('empty state', () => {
     it('shows "No ADRs yet" when array is empty', async () => {
       mockedFetchADRs.mockResolvedValue([])
-      const wrapper = await mountView()
+      const { wrapper } = await mountView()
       await flushPromises()
 
       expect(wrapper.text()).toContain('No ADRs yet')
@@ -131,7 +141,7 @@ describe('ADRListView', () => {
     })
 
     it('renders number, title, status, date for each ADR', async () => {
-      const wrapper = await mountView()
+      const { wrapper } = await mountView()
       await flushPromises()
 
       expect(wrapper.text()).toContain('#1')
@@ -146,7 +156,7 @@ describe('ADRListView', () => {
     })
 
     it('each link has an aria-label with ADR number and title', async () => {
-      const wrapper = await mountView()
+      const { wrapper } = await mountView()
       await flushPromises()
 
       const links = wrapper.findAll('a')
@@ -158,7 +168,7 @@ describe('ADRListView', () => {
     })
 
     it('links to /adr/{number} for each ADR', async () => {
-      const wrapper = await mountView()
+      const { wrapper } = await mountView()
       await flushPromises()
 
       const links = wrapper.findAll('a')
@@ -179,7 +189,7 @@ describe('ADRListView', () => {
 
     it('renders a search input', async () => {
       mockedFetchADRs.mockResolvedValue([])
-      const wrapper = await mountView()
+      const { wrapper } = await mountView()
       await flushPromises()
 
       const input = wrapper.find('input[type="search"]')
@@ -189,7 +199,7 @@ describe('ADRListView', () => {
 
     it('does NOT fetch with query when input is 1 character', async () => {
       mockedFetchADRs.mockResolvedValue([])
-      const wrapper = await mountView()
+      const { wrapper } = await mountView()
       await flushPromises()
       mockedFetchADRs.mockClear()
 
@@ -204,7 +214,7 @@ describe('ADRListView', () => {
 
     it('fetches with query param after 2+ chars and 300ms debounce', async () => {
       mockedFetchADRs.mockResolvedValue([])
-      const wrapper = await mountView()
+      const { wrapper } = await mountView()
       await flushPromises()
       mockedFetchADRs.mockClear()
       mockedFetchADRs.mockResolvedValue([])
@@ -220,7 +230,7 @@ describe('ADRListView', () => {
 
     it('debounces rapid input (only final value triggers fetch)', async () => {
       mockedFetchADRs.mockResolvedValue([])
-      const wrapper = await mountView()
+      const { wrapper } = await mountView()
       await flushPromises()
       mockedFetchADRs.mockClear()
       mockedFetchADRs.mockResolvedValue([])
@@ -244,7 +254,7 @@ describe('ADRListView', () => {
       mockedFetchADRs.mockResolvedValue([
         { number: 1, title: 'Use Go', status: 'Accepted', date: '2025-01-01' },
       ])
-      const wrapper = await mountView()
+      const { wrapper } = await mountView()
       await flushPromises()
       mockedFetchADRs.mockClear()
       mockedFetchADRs.mockResolvedValue([])
@@ -264,7 +274,7 @@ describe('ADRListView', () => {
         { number: 1, title: 'Use Go', status: 'Accepted', date: '2025-01-01' },
       ]
       mockedFetchADRs.mockResolvedValue(allADRs)
-      const wrapper = await mountView()
+      const { wrapper } = await mountView()
       await flushPromises()
       mockedFetchADRs.mockClear()
       mockedFetchADRs.mockResolvedValue(allADRs)
@@ -283,7 +293,7 @@ describe('ADRListView', () => {
         { number: 1, title: 'Use Go', status: 'Accepted', date: '2025-01-01' },
       ]
       mockedFetchADRs.mockResolvedValue(allADRs)
-      const wrapper = await mountView()
+      const { wrapper } = await mountView()
       await flushPromises()
 
       const input = wrapper.find('input[type="search"]')
@@ -301,7 +311,7 @@ describe('ADRListView', () => {
 
     it('error clears immediately when user starts typing new search', async () => {
       mockedFetchADRs.mockRejectedValue(new Error('Server error'))
-      const wrapper = await mountView()
+      const { wrapper } = await mountView()
       await flushPromises()
       expect(wrapper.text()).toContain('Server error')
 
@@ -326,7 +336,7 @@ describe('ADRListView', () => {
 
     it('cancels previous request when new search is triggered', async () => {
       mockedFetchADRs.mockResolvedValue([])
-      const wrapper = await mountView()
+      const { wrapper } = await mountView()
       await flushPromises()
       mockedFetchADRs.mockReset()
 
@@ -361,7 +371,7 @@ describe('ADRListView', () => {
 
     it('does NOT show AbortError to user', async () => {
       mockedFetchADRs.mockResolvedValue([])
-      const wrapper = await mountView()
+      const { wrapper } = await mountView()
       await flushPromises()
       mockedFetchADRs.mockReset()
 
@@ -383,7 +393,7 @@ describe('ADRListView', () => {
 
     it('does NOT fire request if unmounted before debounce completes', async () => {
       mockedFetchADRs.mockResolvedValue([])
-      const wrapper = await mountView()
+      const { wrapper } = await mountView()
       await flushPromises()
       mockedFetchADRs.mockClear()
 
@@ -407,7 +417,7 @@ describe('ADRListView', () => {
       mockedFetchADRs.mockResolvedValue([
         { number: 1, title: 'A', status: 'Accepted', date: '2025-01-01' },
       ])
-      const wrapper = await mountView()
+      const { wrapper } = await mountView()
       await flushPromises()
 
       expect(wrapper.find('.bg-green-500').exists()).toBe(true)
@@ -418,7 +428,7 @@ describe('ADRListView', () => {
       mockedFetchADRs.mockResolvedValue([
         { number: 1, title: 'A', status: 'Proposed', date: '2025-01-01' },
       ])
-      const wrapper = await mountView()
+      const { wrapper } = await mountView()
       await flushPromises()
 
       expect(wrapper.find('.bg-amber-500').exists()).toBe(true)
@@ -429,11 +439,222 @@ describe('ADRListView', () => {
       mockedFetchADRs.mockResolvedValue([
         { number: 1, title: 'A', status: 'Superseded', date: '2025-01-01' },
       ])
-      const wrapper = await mountView()
+      const { wrapper } = await mountView()
       await flushPromises()
 
       expect(wrapper.find('.bg-red-500').exists()).toBe(true)
       expect(wrapper.find('.text-red-600').exists()).toBe(true)
+    })
+  })
+
+  describe('status filtering', () => {
+    const mixedADRs = [
+      { number: 1, title: 'Use PostgreSQL', status: 'Accepted', date: '2025-01-15' },
+      { number: 2, title: 'Use Redis', status: 'Proposed', date: '2025-02-01' },
+      { number: 3, title: 'Use MongoDB', status: 'Rejected', date: '2025-03-01' },
+    ]
+
+    beforeEach(() => {
+      mockedFetchADRs.mockResolvedValue(mixedADRs)
+    })
+
+    it('shows all ADRs when no status chip is selected', async () => {
+      const { wrapper } = await mountView()
+      await flushPromises()
+
+      expect(wrapper.text()).toContain('Use PostgreSQL')
+      expect(wrapper.text()).toContain('Use Redis')
+      expect(wrapper.text()).toContain('Use MongoDB')
+    })
+
+    it('clicking a chip filters list to only that status', async () => {
+      const { wrapper } = await mountView()
+      await flushPromises()
+
+      const chips = wrapper.find('[role="group"]').findAll('button')
+      const acceptedChip = chips.find(b => b.text().includes('Accepted'))!
+      await acceptedChip.trigger('click')
+      await flushPromises()
+
+      expect(wrapper.text()).toContain('Use PostgreSQL')
+      expect(wrapper.text()).not.toContain('Use Redis')
+      expect(wrapper.text()).not.toContain('Use MongoDB')
+    })
+
+    it('multiple chips use OR logic (shows ADRs matching any selected status)', async () => {
+      const { wrapper } = await mountView()
+      await flushPromises()
+
+      const chips = wrapper.find('[role="group"]').findAll('button')
+      const acceptedChip = chips.find(b => b.text().includes('Accepted'))!
+      const proposedChip = chips.find(b => b.text().includes('Proposed'))!
+      await acceptedChip.trigger('click')
+      await proposedChip.trigger('click')
+      await flushPromises()
+
+      expect(wrapper.text()).toContain('Use PostgreSQL')
+      expect(wrapper.text()).toContain('Use Redis')
+      expect(wrapper.text()).not.toContain('Use MongoDB')
+    })
+
+    it('deselecting all chips shows all ADRs again', async () => {
+      const { wrapper } = await mountView()
+      await flushPromises()
+
+      const chips = wrapper.find('[role="group"]').findAll('button')
+      const acceptedChip = chips.find(b => b.text().includes('Accepted'))!
+
+      // Select then deselect
+      await acceptedChip.trigger('click')
+      await flushPromises()
+      expect(wrapper.text()).not.toContain('Use Redis')
+
+      await acceptedChip.trigger('click')
+      await flushPromises()
+
+      expect(wrapper.text()).toContain('Use PostgreSQL')
+      expect(wrapper.text()).toContain('Use Redis')
+      expect(wrapper.text()).toContain('Use MongoDB')
+    })
+
+    it('shows filter empty state when chips exclude all results', async () => {
+      mockedFetchADRs.mockResolvedValue([
+        { number: 1, title: 'Use PostgreSQL', status: 'Accepted', date: '2025-01-15' },
+      ])
+      mockedFetchStatuses.mockResolvedValue(['Accepted', 'Proposed', 'Rejected'])
+      const { wrapper } = await mountView()
+      await flushPromises()
+
+      // Select 'Proposed' — no ADRs have this status
+      const chips = wrapper.find('[role="group"]').findAll('button')
+      const proposedChip = chips.find(b => b.text().includes('Proposed'))!
+      await proposedChip.trigger('click')
+      await flushPromises()
+
+      expect(wrapper.text()).toContain('No ADRs match the selected filters')
+      const statusEl = wrapper.find('[role="status"]')
+      expect(statusEl.exists()).toBe(true)
+    })
+  })
+
+  describe('filter + search composition', () => {
+    beforeEach(() => {
+      vi.useFakeTimers()
+    })
+
+    afterEach(() => {
+      vi.useRealTimers()
+    })
+
+    it('search narrows via API, chip filters client-side (AND logic)', async () => {
+      // Initial load
+      mockedFetchADRs.mockResolvedValue([
+        { number: 1, title: 'Use PostgreSQL', status: 'Accepted', date: '2025-01-15' },
+        { number: 2, title: 'Use Redis', status: 'Proposed', date: '2025-02-01' },
+      ])
+      const { wrapper } = await mountView()
+      await flushPromises()
+
+      // Search returns both (server-side)
+      mockedFetchADRs.mockResolvedValue([
+        { number: 1, title: 'Use PostgreSQL', status: 'Accepted', date: '2025-01-15' },
+        { number: 2, title: 'Use Redis', status: 'Proposed', date: '2025-02-01' },
+      ])
+      const input = wrapper.find('input[type="search"]')
+      await input.setValue('Use')
+      await input.trigger('input')
+      await vi.advanceTimersByTimeAsync(300)
+      await flushPromises()
+
+      // Now filter by Accepted chip
+      const chips = wrapper.find('[role="group"]').findAll('button')
+      const acceptedChip = chips.find(b => b.text().includes('Accepted'))!
+      await acceptedChip.trigger('click')
+      await flushPromises()
+
+      expect(wrapper.text()).toContain('Use PostgreSQL')
+      expect(wrapper.text()).not.toContain('Use Redis')
+    })
+
+    it('search returns results but filter excludes all → shows filter empty state', async () => {
+      mockedFetchADRs.mockResolvedValue([
+        { number: 1, title: 'Use PostgreSQL', status: 'Accepted', date: '2025-01-15' },
+      ])
+      const { wrapper } = await mountView()
+      await flushPromises()
+
+      // Select Proposed — no Proposed ADRs in results
+      const chips = wrapper.find('[role="group"]').findAll('button')
+      const proposedChip = chips.find(b => b.text().includes('Proposed'))!
+      await proposedChip.trigger('click')
+      await flushPromises()
+
+      expect(wrapper.text()).toContain('No ADRs match the selected filters')
+      expect(wrapper.text()).not.toContain('No ADRs match "')
+    })
+  })
+
+  describe('URL state', () => {
+    it('on mount with ?status=Accepted, chip is pre-selected and list is filtered', async () => {
+      mockedFetchADRs.mockResolvedValue([
+        { number: 1, title: 'Use PostgreSQL', status: 'Accepted', date: '2025-01-15' },
+        { number: 2, title: 'Use Redis', status: 'Proposed', date: '2025-02-01' },
+      ])
+      const { wrapper } = await mountView('/?status=Accepted')
+      await flushPromises()
+
+      // Accepted chip should be pressed
+      const chips = wrapper.find('[role="group"]').findAll('button')
+      const acceptedChip = chips.find(b => b.text().includes('Accepted'))!
+      expect(acceptedChip.attributes('aria-pressed')).toBe('true')
+
+      // Only Accepted ADR shown
+      expect(wrapper.text()).toContain('Use PostgreSQL')
+      expect(wrapper.text()).not.toContain('Use Redis')
+    })
+
+    it('toggling a chip updates route query params', async () => {
+      mockedFetchADRs.mockResolvedValue([
+        { number: 1, title: 'Use PostgreSQL', status: 'Accepted', date: '2025-01-15' },
+      ])
+      const { wrapper, router } = await mountView()
+      await flushPromises()
+
+      const chips = wrapper.find('[role="group"]').findAll('button')
+      const acceptedChip = chips.find(b => b.text().includes('Accepted'))!
+      await acceptedChip.trigger('click')
+      await flushPromises()
+
+      expect(router.currentRoute.value.query.status).toBe('Accepted')
+    })
+
+    it('on mount with ?q=database&status=Accepted, both search and filter are initialized', async () => {
+      mockedFetchADRs.mockResolvedValue([
+        { number: 1, title: 'Use database', status: 'Accepted', date: '2025-01-15' },
+      ])
+      const { wrapper } = await mountView('/?q=database&status=Accepted')
+      await flushPromises()
+
+      const input = wrapper.find('input[type="search"]')
+      expect((input.element as HTMLInputElement).value).toBe('database')
+
+      const chips = wrapper.find('[role="group"]').findAll('button')
+      const acceptedChip = chips.find(b => b.text().includes('Accepted'))!
+      expect(acceptedChip.attributes('aria-pressed')).toBe('true')
+
+      // fetchADRs should have been called with the query
+      expect(mockedFetchADRs).toHaveBeenCalledWith('database', expect.any(AbortSignal))
+    })
+
+    it('invalid status in URL is ignored gracefully', async () => {
+      mockedFetchADRs.mockResolvedValue([
+        { number: 1, title: 'Use PostgreSQL', status: 'Accepted', date: '2025-01-15' },
+      ])
+      const { wrapper } = await mountView('/?status=Bogus')
+      await flushPromises()
+
+      // Should not crash — no chip rendered for Bogus, filter empty state shown
+      expect(wrapper.text()).toContain('No ADRs match the selected filters')
     })
   })
 })

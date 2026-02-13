@@ -1,18 +1,30 @@
 <script setup lang="ts">
-import { ref, computed, onMounted, onUnmounted } from 'vue'
-import { RouterLink } from 'vue-router'
+import { ref, computed, watch, nextTick, onMounted, onUnmounted } from 'vue'
+import { RouterLink, useRoute, useRouter } from 'vue-router'
 import type { ADRSummary } from '../types'
-import { fetchADRs } from '../api'
+import { fetchADRs, fetchStatuses } from '../api'
+import StatusFilterChips from '../components/StatusFilterChips.vue'
+
+const route = useRoute()
+const router = useRouter()
 
 const adrs = ref<ADRSummary[]>([])
 const loading = ref(true)
 const error = ref('')
 const searchQuery = ref('')
+const selectedStatuses = ref<Set<string>>(new Set())
+const availableStatuses = ref<string[]>([])
 
 let debounceTimer: ReturnType<typeof setTimeout> | null = null
 let abortController: AbortController | null = null
+let isInternalNavigation = false
 
 const hasSearchQuery = computed(() => searchQuery.value.trim().length > 0)
+
+const filteredADRs = computed(() => {
+  if (selectedStatuses.value.size === 0) return adrs.value
+  return adrs.value.filter(adr => selectedStatuses.value.has(adr.status))
+})
 
 async function loadADRs(query?: string) {
   abortController?.abort()
@@ -50,6 +62,7 @@ function onSearchInput() {
     } else {
       loadADRs()
     }
+    syncToURL()
   }, 300)
 }
 
@@ -61,9 +74,73 @@ function clearSearch() {
   }
   abortController?.abort()
   loadADRs()
+  syncToURL()
 }
 
-onMounted(loadADRs)
+function buildQuery(): Record<string, string | string[]> {
+  const q: Record<string, string | string[]> = {}
+  const searchTrimmed = searchQuery.value.trim()
+  if (searchTrimmed.length >= 2) {
+    q.q = searchTrimmed
+  }
+  if (selectedStatuses.value.size > 0) {
+    const arr = [...selectedStatuses.value]
+    q.status = arr.length === 1 ? arr[0]! : arr
+  }
+  return q
+}
+
+function syncToURL() {
+  isInternalNavigation = true
+  router.replace({ query: buildQuery() }).finally(() => {
+    nextTick(() => { isInternalNavigation = false })
+  })
+}
+
+watch(selectedStatuses, () => {
+  syncToURL()
+})
+
+watch(() => route.query, (newQuery) => {
+  if (isInternalNavigation) return
+  const statusParam = newQuery.status
+  if (statusParam) {
+    const arr = Array.isArray(statusParam) ? statusParam : [statusParam]
+    selectedStatuses.value = new Set(arr.filter((s): s is string => typeof s === 'string'))
+  } else {
+    selectedStatuses.value = new Set()
+  }
+  if (typeof newQuery.q === 'string') {
+    searchQuery.value = newQuery.q
+  } else {
+    searchQuery.value = ''
+  }
+}, { deep: true })
+
+onMounted(() => {
+  // Initialize from URL
+  const statusParam = route.query.status
+  if (statusParam) {
+    const arr = Array.isArray(statusParam) ? statusParam : [statusParam]
+    selectedStatuses.value = new Set(arr.filter((s): s is string => typeof s === 'string'))
+  }
+  if (typeof route.query.q === 'string') {
+    searchQuery.value = route.query.q
+  }
+
+  // Load ADRs (with search query from URL if present)
+  const q = searchQuery.value.trim()
+  loadADRs(q.length >= 2 ? q : undefined)
+
+  // Fetch available statuses
+  fetchStatuses()
+    .then(s => { availableStatuses.value = s })
+    .catch(() => {
+      // Fallback: derive from loaded ADRs
+      const fromADRs = [...new Set(adrs.value.map(a => a.status))]
+      if (fromADRs.length > 0) availableStatuses.value = fromADRs
+    })
+})
 
 onUnmounted(() => {
   if (debounceTimer !== null) {
@@ -98,10 +175,17 @@ function statusTextClass(status: string): string {
     type="search"
     aria-label="Search ADRs"
     placeholder="Search ADRs…"
-    class="w-full mb-6 py-2.5 px-4 rounded-lg border border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-900 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+    class="w-full mb-4 py-2.5 px-4 rounded-lg border border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-900 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
     @input="onSearchInput"
     @keydown.esc="clearSearch"
   />
+
+  <div v-if="availableStatuses.length > 0" class="mb-6">
+    <StatusFilterChips
+      v-model="selectedStatuses"
+      :statuses="availableStatuses"
+    />
+  </div>
 
   <!-- Loading -->
   <div v-if="loading" role="status" class="text-center py-16 text-gray-500 dark:text-gray-400">
@@ -131,10 +215,21 @@ function statusTextClass(status: string): string {
     <p class="mt-1 text-sm text-gray-400 dark:text-gray-500">Try a different search term.</p>
   </div>
 
+  <!-- Status filter excludes all results -->
+  <div v-else-if="filteredADRs.length === 0 && adrs.length > 0"
+       class="text-center py-16" role="status" aria-live="polite">
+    <p class="text-lg font-medium text-gray-500 dark:text-gray-400">
+      No ADRs match the selected filters
+    </p>
+    <p class="mt-1 text-sm text-gray-400 dark:text-gray-500">
+      {{ adrs.length }} ADR{{ adrs.length === 1 ? '' : 's' }} available — try selecting different statuses or clearing your search.
+    </p>
+  </div>
+
   <!-- ADR list -->
   <ul v-else aria-live="polite" class="divide-y divide-gray-200 dark:divide-gray-800 border-t border-b border-gray-200 dark:border-gray-800">
     <li
-      v-for="adr in adrs"
+      v-for="adr in filteredADRs"
       :key="adr.number"
     >
       <RouterLink
@@ -169,4 +264,9 @@ function statusTextClass(status: string): string {
       </RouterLink>
     </li>
   </ul>
+
+  <!-- Screen reader count announcement (outside v-if chain) -->
+  <div v-if="!loading && !error && adrs.length > 0" class="sr-only" role="status" aria-live="polite" aria-atomic="true">
+    {{ filteredADRs.length }} record{{ filteredADRs.length !== 1 ? 's' : '' }} shown
+  </div>
 </template>
