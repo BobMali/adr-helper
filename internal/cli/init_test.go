@@ -49,7 +49,7 @@ func TestInitCmd_CreatesDirectoryAndWritesDefaultTemplate(t *testing.T) {
 	assert.Contains(t, string(content), "## Consequences")
 }
 
-func TestInitCmd_NoArgs_WritesTemplateInCurrentDir(t *testing.T) {
+func TestInitCmd_NoArgs_WritesTemplateInDefaultDir(t *testing.T) {
 	tmpDir := chdirTemp(t)
 
 	root := cli.NewRootCmd()
@@ -58,7 +58,7 @@ func TestInitCmd_NoArgs_WritesTemplateInCurrentDir(t *testing.T) {
 	err := root.Execute()
 	require.NoError(t, err)
 
-	content, err := os.ReadFile(filepath.Join(tmpDir, "template.md"))
+	content, err := os.ReadFile(filepath.Join(tmpDir, "docs", "adr", "template.md"))
 	require.NoError(t, err)
 
 	assert.Contains(t, string(content), "## Status")
@@ -226,7 +226,7 @@ func TestInitCmd_WritesConfigWithCustomTemplate(t *testing.T) {
 	assert.Equal(t, "madr-full", cfg.Template)
 }
 
-func TestInitCmd_NoArgs_WritesConfigWithDotDirectory(t *testing.T) {
+func TestInitCmd_NoArgs_WritesConfigWithDefaultDirectory(t *testing.T) {
 	tmpDir := chdirTemp(t)
 
 	root := cli.NewRootCmd()
@@ -240,7 +240,7 @@ func TestInitCmd_NoArgs_WritesConfigWithDotDirectory(t *testing.T) {
 
 	var cfg adr.Config
 	require.NoError(t, json.Unmarshal(data, &cfg))
-	assert.Equal(t, ".", cfg.Directory)
+	assert.Equal(t, "docs/adr", cfg.Directory)
 }
 
 func TestInitCmd_ExistingConfig_RefusesToOverwrite(t *testing.T) {

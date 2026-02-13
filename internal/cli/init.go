@@ -24,6 +24,9 @@ func validateTemplateFile(name string) error {
 	return nil
 }
 
+// DefaultADRDirectory is the default directory path used when no argument is given to `adr init`.
+const DefaultADRDirectory = "docs/adr"
+
 // NewInitCmd creates the init subcommand for initializing an ADR directory.
 func NewInitCmd() *cobra.Command {
 	var template string
@@ -34,8 +37,16 @@ func NewInitCmd() *cobra.Command {
 		Use:   "init [path]",
 		Short: "Initialize a new ADR directory with a template (init)",
 		Args:  cobra.MaximumNArgs(1),
+		Long: `Initialize a new ADR directory with a template.
+
+If no path is given, defaults to "docs/adr".
+
+Examples:
+  adr init                  # creates docs/adr/ with default template
+  adr init decisions        # creates decisions/ with default template
+  adr init -t madr-minimal  # creates docs/adr/ with MADR minimal template`,
 		RunE: func(cmd *cobra.Command, args []string) error {
-			dir := "."
+			dir := DefaultADRDirectory
 			if len(args) > 0 {
 				dir = args[0]
 			}
