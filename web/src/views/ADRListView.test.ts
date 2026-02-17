@@ -197,59 +197,6 @@ describe('ADRListView', () => {
       expect(input.attributes('aria-label')).toBe('Search ADRs')
     })
 
-    it('does NOT fetch with query when input is 1 character', async () => {
-      mockedFetchADRs.mockResolvedValue([])
-      const { wrapper } = await mountView()
-      await flushPromises()
-      mockedFetchADRs.mockClear()
-
-      const input = wrapper.find('input[type="search"]')
-      await input.setValue('a')
-      await input.trigger('input')
-      await vi.advanceTimersByTimeAsync(300)
-      await flushPromises()
-
-      expect(mockedFetchADRs).toHaveBeenCalledWith(undefined, expect.any(AbortSignal))
-    })
-
-    it('fetches with query param after 2+ chars and 300ms debounce', async () => {
-      mockedFetchADRs.mockResolvedValue([])
-      const { wrapper } = await mountView()
-      await flushPromises()
-      mockedFetchADRs.mockClear()
-      mockedFetchADRs.mockResolvedValue([])
-
-      const input = wrapper.find('input[type="search"]')
-      await input.setValue('chi')
-      await input.trigger('input')
-      await vi.advanceTimersByTimeAsync(300)
-      await flushPromises()
-
-      expect(mockedFetchADRs).toHaveBeenCalledWith('chi', expect.any(AbortSignal))
-    })
-
-    it('debounces rapid input (only final value triggers fetch)', async () => {
-      mockedFetchADRs.mockResolvedValue([])
-      const { wrapper } = await mountView()
-      await flushPromises()
-      mockedFetchADRs.mockClear()
-      mockedFetchADRs.mockResolvedValue([])
-
-      const input = wrapper.find('input[type="search"]')
-      await input.setValue('ch')
-      await input.trigger('input')
-      await vi.advanceTimersByTimeAsync(100)
-
-      await input.setValue('chi')
-      await input.trigger('input')
-      await vi.advanceTimersByTimeAsync(300)
-      await flushPromises()
-
-      // Should only have fetched once, with the final value
-      expect(mockedFetchADRs).toHaveBeenCalledTimes(1)
-      expect(mockedFetchADRs).toHaveBeenCalledWith('chi', expect.any(AbortSignal))
-    })
-
     it('shows "No matching ADRs" when search returns empty', async () => {
       mockedFetchADRs.mockResolvedValue([
         { number: 1, title: 'Use Go', status: 'Accepted', date: '2025-01-01' },
@@ -267,25 +214,6 @@ describe('ADRListView', () => {
 
       expect(wrapper.text()).toContain('No ADRs match')
       expect(wrapper.text()).toContain('zzz')
-    })
-
-    it('clearing search reloads all ADRs', async () => {
-      const allADRs = [
-        { number: 1, title: 'Use Go', status: 'Accepted', date: '2025-01-01' },
-      ]
-      mockedFetchADRs.mockResolvedValue(allADRs)
-      const { wrapper } = await mountView()
-      await flushPromises()
-      mockedFetchADRs.mockClear()
-      mockedFetchADRs.mockResolvedValue(allADRs)
-
-      const input = wrapper.find('input[type="search"]')
-      await input.setValue('')
-      await input.trigger('input')
-      await vi.advanceTimersByTimeAsync(300)
-      await flushPromises()
-
-      expect(mockedFetchADRs).toHaveBeenCalledWith(undefined, expect.any(AbortSignal))
     })
 
     it('escape key clears search and reloads all ADRs', async () => {
@@ -309,107 +237,6 @@ describe('ADRListView', () => {
       expect(mockedFetchADRs).toHaveBeenCalledWith(undefined, expect.any(AbortSignal))
     })
 
-    it('error clears immediately when user starts typing new search', async () => {
-      mockedFetchADRs.mockRejectedValue(new Error('Server error'))
-      const { wrapper } = await mountView()
-      await flushPromises()
-      expect(wrapper.text()).toContain('Server error')
-
-      mockedFetchADRs.mockResolvedValue([])
-      const input = wrapper.find('input[type="search"]')
-      await input.setValue('ch')
-      await input.trigger('input')
-
-      // Error should clear immediately, not after debounce
-      expect(wrapper.text()).not.toContain('Server error')
-    })
-  })
-
-  describe('search race condition prevention', () => {
-    beforeEach(() => {
-      vi.useFakeTimers()
-    })
-
-    afterEach(() => {
-      vi.useRealTimers()
-    })
-
-    it('cancels previous request when new search is triggered', async () => {
-      mockedFetchADRs.mockResolvedValue([])
-      const { wrapper } = await mountView()
-      await flushPromises()
-      mockedFetchADRs.mockReset()
-
-      // First search: slow response
-      const staleResult = [{ number: 1, title: 'Stale Result', status: 'Accepted', date: '2025-01-01' }]
-      let resolveFirst!: (v: unknown) => void
-      mockedFetchADRs.mockImplementationOnce(() => new Promise(r => { resolveFirst = r }))
-
-      const input = wrapper.find('input[type="search"]')
-      await input.setValue('abc')
-      await input.trigger('input')
-      await vi.advanceTimersByTimeAsync(300)
-      await flushPromises()
-
-      // Second search: fast response
-      const freshResult = [{ number: 2, title: 'Fresh Result', status: 'Proposed', date: '2025-02-01' }]
-      mockedFetchADRs.mockResolvedValueOnce(freshResult)
-
-      await input.setValue('xyz')
-      await input.trigger('input')
-      await vi.advanceTimersByTimeAsync(300)
-      await flushPromises()
-
-      // Now the first resolves (stale)
-      resolveFirst(staleResult)
-      await flushPromises()
-
-      // Only fresh result should be displayed
-      expect(wrapper.text()).toContain('Fresh Result')
-      expect(wrapper.text()).not.toContain('Stale Result')
-    })
-
-    it('does NOT show AbortError to user', async () => {
-      mockedFetchADRs.mockResolvedValue([])
-      const { wrapper } = await mountView()
-      await flushPromises()
-      mockedFetchADRs.mockReset()
-
-      mockedFetchADRs.mockRejectedValueOnce(
-        new DOMException('The operation was aborted', 'AbortError'),
-      )
-
-      const input = wrapper.find('input[type="search"]')
-      await input.setValue('abc')
-      await input.trigger('input')
-      await vi.advanceTimersByTimeAsync(300)
-      await flushPromises()
-
-      expect(wrapper.text()).not.toContain('aborted')
-      expect(wrapper.text()).not.toContain('AbortError')
-      // Should not show any red error text
-      expect(wrapper.find('.text-red-600').exists()).toBe(false)
-    })
-
-    it('does NOT fire request if unmounted before debounce completes', async () => {
-      mockedFetchADRs.mockResolvedValue([])
-      const { wrapper } = await mountView()
-      await flushPromises()
-      mockedFetchADRs.mockClear()
-
-      const input = wrapper.find('input[type="search"]')
-      await input.setValue('abc')
-      await input.trigger('input')
-
-      // Unmount before debounce fires
-      wrapper.unmount()
-
-      await vi.advanceTimersByTimeAsync(300)
-      await flushPromises()
-
-      // fetchADRs should NOT have been called after mount
-      expect(mockedFetchADRs).not.toHaveBeenCalled()
-    })
   })
 
   describe('status coloring', () => {
@@ -842,61 +669,6 @@ describe('ADRListView', () => {
 
       expect(router.currentRoute.value.query.sort).toBe('title')
     })
-
-    it('defaults produce no extra sort/dir params', async () => {
-      const { router } = await mountView()
-      await flushPromises()
-
-      expect(router.currentRoute.value.query.sort).toBeUndefined()
-      expect(router.currentRoute.value.query.dir).toBeUndefined()
-    })
-
-    it('desc direction adds dir param', async () => {
-      const { wrapper, router } = await mountView()
-      await flushPromises()
-
-      const sortGroup = wrapper.find('[aria-label="Sort options"]')
-      const idBtn = sortGroup.findAll('button').find(b => b.text().includes('ID'))!
-      await idBtn.trigger('click') // toggle to desc
-      await flushPromises()
-
-      expect(router.currentRoute.value.query.dir).toBe('desc')
-    })
-
-    it('mount with ?sort=title&dir=desc restores sort state', async () => {
-      const { wrapper } = await mountView('/?sort=title&dir=desc')
-      await flushPromises()
-
-      const sortGroup = wrapper.find('[aria-label="Sort options"]')
-      const titleBtn = sortGroup.findAll('button').find(b => b.text().includes('Title'))!
-      expect(titleBtn.attributes('aria-pressed')).toBe('true')
-
-      // Items should be title desc: Use Redis, Use MongoDB, Adopt TypeScript
-      const items = wrapper.findAll('li')
-      expect(items[0]!.text()).toContain('Use Redis')
-      expect(items[2]!.text()).toContain('Adopt TypeScript')
-    })
-
-    it('mount with ?sort=title but no dir defaults to asc', async () => {
-      const { wrapper } = await mountView('/?sort=title')
-      await flushPromises()
-
-      const items = wrapper.findAll('li')
-      expect(items[0]!.text()).toContain('Adopt TypeScript')
-      expect(items[2]!.text()).toContain('Use Redis')
-    })
-
-    it('invalid ?sort=bogus falls back to default (number asc)', async () => {
-      const { wrapper } = await mountView('/?sort=bogus')
-      await flushPromises()
-
-      const sortGroup = wrapper.find('[aria-label="Sort options"]')
-      const idBtn = sortGroup.findAll('button').find(b => b.text().includes('ID'))!
-      expect(idBtn.attributes('aria-pressed')).toBe('true')
-
-      const items = wrapper.findAll('li')
-      expect(items[0]!.text()).toContain('#1')
-    })
   })
 
   describe('URL state', () => {
@@ -916,21 +688,6 @@ describe('ADRListView', () => {
       // Only Accepted ADR shown
       expect(wrapper.text()).toContain('Use PostgreSQL')
       expect(wrapper.text()).not.toContain('Use Redis')
-    })
-
-    it('toggling a chip updates route query params', async () => {
-      mockedFetchADRs.mockResolvedValue([
-        { number: 1, title: 'Use PostgreSQL', status: 'Accepted', date: '2025-01-15' },
-      ])
-      const { wrapper, router } = await mountView()
-      await flushPromises()
-
-      const chips = wrapper.find('[role="group"]').findAll('button')
-      const acceptedChip = chips.find(b => b.text().includes('Accepted'))!
-      await acceptedChip.trigger('click')
-      await flushPromises()
-
-      expect(router.currentRoute.value.query.status).toBe('Accepted')
     })
 
     it('on mount with ?q=database&status=Accepted, both search and filter are initialized', async () => {

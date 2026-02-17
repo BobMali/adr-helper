@@ -1,9 +1,12 @@
 <script setup lang="ts">
-import { ref, computed, watch, nextTick, onMounted, onUnmounted } from 'vue'
-import { RouterLink, useRoute, useRouter } from 'vue-router'
-import type { ADRSummary, SortField, SortDirection } from '../types'
-import { fetchADRs, fetchStatuses } from '../api'
+import { ref, computed, watch, onMounted } from 'vue'
+import { RouterLink } from 'vue-router'
+import type { SortField, SortDirection } from '../types'
+import { fetchStatuses } from '../api'
 import StatusFilterChips from '../components/StatusFilterChips.vue'
+import { statusDotClass, statusTextClass } from '../utils/statusColors'
+import { useADRSearch } from '../composables/useADRSearch'
+import { useURLSync } from '../composables/useURLSync'
 
 const STATUS_ORDER: Record<string, number> = {
   proposed: 0, accepted: 1, deprecated: 2, superseded: 3, rejected: 4,
@@ -19,26 +22,13 @@ const SORT_FIELDS = [
   { value: 'status', label: 'Status' },
 ] as const satisfies readonly { value: SortField; label: string }[]
 
-const VALID_SORT_FIELDS = new Set<string>(['number', 'title', 'status'])
-
-const route = useRoute()
-const router = useRouter()
-
-const adrs = ref<ADRSummary[]>([])
-const loading = ref(true)
-const error = ref('')
-const searchQuery = ref('')
 const selectedStatuses = ref<Set<string>>(new Set())
 const availableStatuses = ref<string[]>([])
-
-let debounceTimer: ReturnType<typeof setTimeout> | null = null
-let abortController: AbortController | null = null
-let isInternalNavigation = false
-
-const hasSearchQuery = computed(() => searchQuery.value.trim().length > 0)
-
 const sortField = ref<SortField>('number')
 const sortDirection = ref<SortDirection>('asc')
+
+const { adrs, loading, error, searchQuery, hasSearchQuery, loadADRs, onSearchInput, clearSearch } = useADRSearch()
+const { syncToURL, initFromURL } = useURLSync(searchQuery, selectedStatuses, sortField, sortDirection)
 
 const filteredADRs = computed(() => {
   if (selectedStatuses.value.size === 0) return adrs.value
@@ -73,81 +63,14 @@ function getSortAriaLabel(field: { value: SortField; label: string }): string {
   return `Sort by ${field.label}, currently ${dir}, click to sort ${rev}`
 }
 
-async function loadADRs(query?: string) {
-  abortController?.abort()
-  abortController = new AbortController()
-  const currentController = abortController
-
-  loading.value = true
-  error.value = ''
-  try {
-    const result = query
-      ? await fetchADRs(query, currentController.signal)
-      : await fetchADRs(undefined, currentController.signal)
-    if (currentController !== abortController) return
-    adrs.value = result
-  } catch (e) {
-    if (e instanceof DOMException && e.name === 'AbortError') return
-    if (currentController !== abortController) return
-    error.value = e instanceof Error ? e.message : 'Unknown error'
-  } finally {
-    if (currentController === abortController) {
-      loading.value = false
-    }
-  }
-}
-
-function onSearchInput() {
-  error.value = ''
-  if (debounceTimer !== null) {
-    clearTimeout(debounceTimer)
-  }
-  debounceTimer = setTimeout(() => {
-    const q = searchQuery.value.trim()
-    if (q.length >= 2) {
-      loadADRs(q)
-    } else {
-      loadADRs()
-    }
-    syncToURL()
-  }, 300)
-}
-
-function clearSearch() {
-  searchQuery.value = ''
-  if (debounceTimer !== null) {
-    clearTimeout(debounceTimer)
-    debounceTimer = null
-  }
-  abortController?.abort()
-  loadADRs()
+function handleSearchInput() {
+  onSearchInput()
   syncToURL()
 }
 
-function buildQuery(): Record<string, string | string[]> {
-  const q: Record<string, string | string[]> = {}
-  const searchTrimmed = searchQuery.value.trim()
-  if (searchTrimmed.length >= 2) {
-    q.q = searchTrimmed
-  }
-  if (selectedStatuses.value.size > 0) {
-    const arr = [...selectedStatuses.value]
-    q.status = arr.length === 1 ? arr[0]! : arr
-  }
-  if (sortField.value !== 'number') {
-    q.sort = sortField.value
-  }
-  if (sortDirection.value !== 'asc') {
-    q.dir = sortDirection.value
-  }
-  return q
-}
-
-function syncToURL() {
-  isInternalNavigation = true
-  router.replace({ query: buildQuery() }).finally(() => {
-    nextTick(() => { isInternalNavigation = false })
-  })
+function handleClearSearch() {
+  clearSearch()
+  syncToURL()
 }
 
 watch(selectedStatuses, () => {
@@ -158,78 +81,19 @@ watch([sortField, sortDirection], () => {
   syncToURL()
 })
 
-watch(() => route.query, (newQuery) => {
-  if (isInternalNavigation) return
-  const statusParam = newQuery.status
-  if (statusParam) {
-    const arr = Array.isArray(statusParam) ? statusParam : [statusParam]
-    selectedStatuses.value = new Set(arr.filter((s): s is string => typeof s === 'string'))
-  } else {
-    selectedStatuses.value = new Set()
-  }
-  if (typeof newQuery.q === 'string') {
-    searchQuery.value = newQuery.q
-  } else {
-    searchQuery.value = ''
-  }
-  const sortParam = typeof newQuery.sort === 'string' && VALID_SORT_FIELDS.has(newQuery.sort) ? newQuery.sort as SortField : 'number'
-  const dirParam = newQuery.dir === 'desc' ? 'desc' as const : 'asc' as const
-  if (sortField.value !== sortParam) sortField.value = sortParam
-  if (sortDirection.value !== dirParam) sortDirection.value = dirParam
-}, { deep: true })
-
 onMounted(() => {
-  // Initialize from URL
-  const statusParam = route.query.status
-  if (statusParam) {
-    const arr = Array.isArray(statusParam) ? statusParam : [statusParam]
-    selectedStatuses.value = new Set(arr.filter((s): s is string => typeof s === 'string'))
-  }
-  if (typeof route.query.q === 'string') {
-    searchQuery.value = route.query.q
-  }
-  if (typeof route.query.sort === 'string' && VALID_SORT_FIELDS.has(route.query.sort)) {
-    sortField.value = route.query.sort as SortField
-  }
-  if (route.query.dir === 'desc') {
-    sortDirection.value = 'desc'
-  }
+  initFromURL()
 
-  // Load ADRs (with search query from URL if present)
   const q = searchQuery.value.trim()
   loadADRs(q.length >= 2 ? q : undefined)
 
-  // Fetch available statuses
   fetchStatuses()
     .then(s => { availableStatuses.value = s })
     .catch(() => {
-      // Fallback: derive from loaded ADRs
       const fromADRs = [...new Set(adrs.value.map(a => a.status))]
       if (fromADRs.length > 0) availableStatuses.value = fromADRs
     })
 })
-
-onUnmounted(() => {
-  if (debounceTimer !== null) {
-    clearTimeout(debounceTimer)
-    debounceTimer = null
-  }
-  abortController?.abort()
-})
-
-function statusDotClass(status: string): string {
-  const s = status.toLowerCase()
-  if (s === 'accepted') return 'bg-green-500'
-  if (s === 'proposed') return 'bg-amber-500'
-  return 'bg-red-500'
-}
-
-function statusTextClass(status: string): string {
-  const s = status.toLowerCase()
-  if (s === 'accepted') return 'text-green-600 dark:text-green-400'
-  if (s === 'proposed') return 'text-amber-600 dark:text-amber-400'
-  return 'text-red-600 dark:text-red-400'
-}
 </script>
 
 <template>
@@ -243,8 +107,8 @@ function statusTextClass(status: string): string {
     aria-label="Search ADRs"
     placeholder="Search ADRs…"
     class="w-full mb-4 py-2.5 px-4 rounded-lg border border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-900 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
-    @input="onSearchInput"
-    @keydown.esc="clearSearch"
+    @input="handleSearchInput"
+    @keydown.esc="handleClearSearch"
   />
 
   <div v-if="availableStatuses.length > 0" class="mb-6">

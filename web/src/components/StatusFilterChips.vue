@@ -1,4 +1,6 @@
 <script setup lang="ts">
+import { statusDotClass, chipBgClass } from '../utils/statusColors'
+
 const props = defineProps<{
   statuses: string[]
   modelValue: Set<string>
@@ -17,20 +19,6 @@ function toggle(status: string) {
   }
   emit('update:modelValue', next)
 }
-
-function chipBgClass(status: string): string {
-  const s = status.toLowerCase()
-  if (s === 'accepted') return 'bg-green-600 hover:bg-green-700'
-  if (s === 'proposed') return 'bg-amber-600 hover:bg-amber-700'
-  return 'bg-red-700 hover:bg-red-800'
-}
-
-function dotClass(status: string): string {
-  const s = status.toLowerCase()
-  if (s === 'accepted') return 'bg-green-500'
-  if (s === 'proposed') return 'bg-amber-500'
-  return 'bg-red-500'
-}
 </script>
 
 <template>
@@ -48,7 +36,7 @@ function dotClass(status: string): string {
     >
       <span
         class="inline-block w-2 h-2 rounded-full"
-        :class="modelValue.has(status) ? 'bg-white' : dotClass(status)"
+        :class="modelValue.has(status) ? 'bg-white' : statusDotClass(status)"
         aria-hidden="true"
       ></span>
       {{ status }}
