@@ -8,3 +8,6 @@ export interface ADRSummary {
 export interface ADRDetail extends ADRSummary {
   content: string
 }
+
+export type SortField = 'number' | 'title' | 'status'
+export type SortDirection = 'asc' | 'desc'

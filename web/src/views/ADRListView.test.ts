@@ -594,6 +594,311 @@ describe('ADRListView', () => {
     })
   })
 
+  describe('sorting', () => {
+    const sortTestADRs = [
+      { number: 3, title: 'Use MongoDB', status: 'Rejected', date: '2025-03-01' },
+      { number: 1, title: 'Adopt TypeScript', status: 'Accepted', date: '2025-01-15' },
+      { number: 2, title: 'Use Redis', status: 'Proposed', date: '2025-02-01' },
+    ]
+
+    beforeEach(() => {
+      mockedFetchADRs.mockResolvedValue(sortTestADRs)
+    })
+
+    it('default sort is number ascending with ID button active', async () => {
+      const { wrapper } = await mountView()
+      await flushPromises()
+
+      const sortGroup = wrapper.find('[aria-label="Sort options"]')
+      expect(sortGroup.exists()).toBe(true)
+
+      const idBtn = sortGroup.findAll('button').find(b => b.text().includes('ID'))!
+      expect(idBtn.attributes('aria-pressed')).toBe('true')
+
+      // Items should be in number order: 1, 2, 3
+      const items = wrapper.findAll('li')
+      expect(items[0]!.text()).toContain('#1')
+      expect(items[1]!.text()).toContain('#2')
+      expect(items[2]!.text()).toContain('#3')
+    })
+
+    it('sort by title ascending', async () => {
+      const { wrapper } = await mountView()
+      await flushPromises()
+
+      const sortGroup = wrapper.find('[aria-label="Sort options"]')
+      const titleBtn = sortGroup.findAll('button').find(b => b.text().includes('Title'))!
+      await titleBtn.trigger('click')
+      await flushPromises()
+
+      const items = wrapper.findAll('li')
+      expect(items[0]!.text()).toContain('Adopt TypeScript')
+      expect(items[1]!.text()).toContain('Use MongoDB')
+      expect(items[2]!.text()).toContain('Use Redis')
+    })
+
+    it('sort by title descending', async () => {
+      const { wrapper } = await mountView()
+      await flushPromises()
+
+      const sortGroup = wrapper.find('[aria-label="Sort options"]')
+      const titleBtn = sortGroup.findAll('button').find(b => b.text().includes('Title'))!
+      // Click once for asc, click again for desc
+      await titleBtn.trigger('click')
+      await titleBtn.trigger('click')
+      await flushPromises()
+
+      const items = wrapper.findAll('li')
+      expect(items[0]!.text()).toContain('Use Redis')
+      expect(items[1]!.text()).toContain('Use MongoDB')
+      expect(items[2]!.text()).toContain('Adopt TypeScript')
+    })
+
+    it('sort by status uses lifecycle order (Proposed → Accepted → Deprecated → Superseded → Rejected)', async () => {
+      const { wrapper } = await mountView()
+      await flushPromises()
+
+      const sortGroup = wrapper.find('[aria-label="Sort options"]')
+      const statusBtn = sortGroup.findAll('button').find(b => b.text().includes('Status'))!
+      await statusBtn.trigger('click')
+      await flushPromises()
+
+      const items = wrapper.findAll('li')
+      // Proposed(2) → Accepted(1) → Rejected(3)
+      expect(items[0]!.text()).toContain('Proposed')
+      expect(items[1]!.text()).toContain('Accepted')
+      expect(items[2]!.text()).toContain('Rejected')
+    })
+
+    it('clicking active field toggles direction', async () => {
+      const { wrapper } = await mountView()
+      await flushPromises()
+
+      const sortGroup = wrapper.find('[aria-label="Sort options"]')
+      const idBtn = sortGroup.findAll('button').find(b => b.text().includes('ID'))!
+
+      // Click ID (already active, asc) → desc
+      await idBtn.trigger('click')
+      await flushPromises()
+
+      const items = wrapper.findAll('li')
+      expect(items[0]!.text()).toContain('#3')
+      expect(items[1]!.text()).toContain('#2')
+      expect(items[2]!.text()).toContain('#1')
+    })
+
+    it('clicking new field resets direction to asc', async () => {
+      const { wrapper } = await mountView()
+      await flushPromises()
+
+      const sortGroup = wrapper.find('[aria-label="Sort options"]')
+      const idBtn = sortGroup.findAll('button').find(b => b.text().includes('ID'))!
+      const titleBtn = sortGroup.findAll('button').find(b => b.text().includes('Title'))!
+
+      // Toggle ID to desc
+      await idBtn.trigger('click')
+      await flushPromises()
+
+      // Switch to Title → should reset to asc
+      await titleBtn.trigger('click')
+      await flushPromises()
+
+      const items = wrapper.findAll('li')
+      expect(items[0]!.text()).toContain('Adopt TypeScript')
+      expect(items[2]!.text()).toContain('Use Redis')
+    })
+
+    it('sort applies after status filtering', async () => {
+      mockedFetchADRs.mockResolvedValue([
+        { number: 3, title: 'Use MongoDB', status: 'Accepted', date: '2025-03-01' },
+        { number: 1, title: 'Adopt TypeScript', status: 'Accepted', date: '2025-01-15' },
+        { number: 2, title: 'Use Redis', status: 'Proposed', date: '2025-02-01' },
+      ])
+      const { wrapper } = await mountView()
+      await flushPromises()
+
+      // Filter to Accepted only
+      const chips = wrapper.find('[role="group"]').findAll('button')
+      const acceptedChip = chips.find(b => b.text().includes('Accepted'))!
+      await acceptedChip.trigger('click')
+      await flushPromises()
+
+      // Sort by title
+      const sortGroup = wrapper.find('[aria-label="Sort options"]')
+      const titleBtn = sortGroup.findAll('button').find(b => b.text().includes('Title'))!
+      await titleBtn.trigger('click')
+      await flushPromises()
+
+      const items = wrapper.findAll('li')
+      expect(items).toHaveLength(2)
+      expect(items[0]!.text()).toContain('Adopt TypeScript')
+      expect(items[1]!.text()).toContain('Use MongoDB')
+    })
+
+    it('toggling a status chip does not reset sort state', async () => {
+      const { wrapper } = await mountView()
+      await flushPromises()
+
+      // Sort by title first
+      const sortGroup = wrapper.find('[aria-label="Sort options"]')
+      const titleBtn = sortGroup.findAll('button').find(b => b.text().includes('Title'))!
+      await titleBtn.trigger('click')
+      await flushPromises()
+
+      // Toggle a status chip
+      const chips = wrapper.find('[role="group"]').findAll('button')
+      const acceptedChip = chips.find(b => b.text().includes('Accepted'))!
+      await acceptedChip.trigger('click')
+      await flushPromises()
+
+      // Title button should still be active
+      expect(titleBtn.attributes('aria-pressed')).toBe('true')
+    })
+
+    it('unknown status sorts to end without crashing', async () => {
+      mockedFetchADRs.mockResolvedValue([
+        { number: 1, title: 'A', status: 'Accepted', date: '2025-01-01' },
+        { number: 2, title: 'B', status: 'UnknownStatus', date: '2025-01-02' },
+        { number: 3, title: 'C', status: 'Proposed', date: '2025-01-03' },
+      ])
+      const { wrapper } = await mountView()
+      await flushPromises()
+
+      const sortGroup = wrapper.find('[aria-label="Sort options"]')
+      const statusBtn = sortGroup.findAll('button').find(b => b.text().includes('Status'))!
+      await statusBtn.trigger('click')
+      await flushPromises()
+
+      const items = wrapper.findAll('li')
+      // Proposed, Accepted, then UnknownStatus at end
+      expect(items[0]!.text()).toContain('Proposed')
+      expect(items[1]!.text()).toContain('Accepted')
+      expect(items[2]!.text()).toContain('UnknownStatus')
+    })
+
+    it('sr-only count reflects correct count after sort change', async () => {
+      const { wrapper } = await mountView()
+      await flushPromises()
+
+      const sortGroup = wrapper.find('[aria-label="Sort options"]')
+      const titleBtn = sortGroup.findAll('button').find(b => b.text().includes('Title'))!
+      await titleBtn.trigger('click')
+      await flushPromises()
+
+      const srOnly = wrapper.find('.sr-only[role="status"]')
+      expect(srOnly.text()).toContain('3 records shown')
+    })
+
+    it('inactive button has aria-pressed="false"', async () => {
+      const { wrapper } = await mountView()
+      await flushPromises()
+
+      const sortGroup = wrapper.find('[aria-label="Sort options"]')
+      const titleBtn = sortGroup.findAll('button').find(b => b.text().includes('Title'))!
+      expect(titleBtn.attributes('aria-pressed')).toBe('false')
+    })
+
+    it('active button has descriptive aria-label', async () => {
+      const { wrapper } = await mountView()
+      await flushPromises()
+
+      const sortGroup = wrapper.find('[aria-label="Sort options"]')
+      const idBtn = sortGroup.findAll('button').find(b => b.text().includes('ID'))!
+      expect(idBtn.attributes('aria-label')).toContain('ascending')
+      expect(idBtn.attributes('aria-label')).toContain('descending')
+    })
+
+    it('shows direction arrow on active button', async () => {
+      const { wrapper } = await mountView()
+      await flushPromises()
+
+      const sortGroup = wrapper.find('[aria-label="Sort options"]')
+      const idBtn = sortGroup.findAll('button').find(b => b.text().includes('ID'))!
+
+      // Should have an arrow (↑ for asc)
+      expect(idBtn.text()).toMatch(/[↑↓]/)
+    })
+  })
+
+  describe('sorting URL sync', () => {
+    const sortTestADRs = [
+      { number: 3, title: 'Use MongoDB', status: 'Rejected', date: '2025-03-01' },
+      { number: 1, title: 'Adopt TypeScript', status: 'Accepted', date: '2025-01-15' },
+      { number: 2, title: 'Use Redis', status: 'Proposed', date: '2025-02-01' },
+    ]
+
+    beforeEach(() => {
+      mockedFetchADRs.mockResolvedValue(sortTestADRs)
+    })
+
+    it('sort change updates URL params', async () => {
+      const { wrapper, router } = await mountView()
+      await flushPromises()
+
+      const sortGroup = wrapper.find('[aria-label="Sort options"]')
+      const titleBtn = sortGroup.findAll('button').find(b => b.text().includes('Title'))!
+      await titleBtn.trigger('click')
+      await flushPromises()
+
+      expect(router.currentRoute.value.query.sort).toBe('title')
+    })
+
+    it('defaults produce no extra sort/dir params', async () => {
+      const { router } = await mountView()
+      await flushPromises()
+
+      expect(router.currentRoute.value.query.sort).toBeUndefined()
+      expect(router.currentRoute.value.query.dir).toBeUndefined()
+    })
+
+    it('desc direction adds dir param', async () => {
+      const { wrapper, router } = await mountView()
+      await flushPromises()
+
+      const sortGroup = wrapper.find('[aria-label="Sort options"]')
+      const idBtn = sortGroup.findAll('button').find(b => b.text().includes('ID'))!
+      await idBtn.trigger('click') // toggle to desc
+      await flushPromises()
+
+      expect(router.currentRoute.value.query.dir).toBe('desc')
+    })
+
+    it('mount with ?sort=title&dir=desc restores sort state', async () => {
+      const { wrapper } = await mountView('/?sort=title&dir=desc')
+      await flushPromises()
+
+      const sortGroup = wrapper.find('[aria-label="Sort options"]')
+      const titleBtn = sortGroup.findAll('button').find(b => b.text().includes('Title'))!
+      expect(titleBtn.attributes('aria-pressed')).toBe('true')
+
+      // Items should be title desc: Use Redis, Use MongoDB, Adopt TypeScript
+      const items = wrapper.findAll('li')
+      expect(items[0]!.text()).toContain('Use Redis')
+      expect(items[2]!.text()).toContain('Adopt TypeScript')
+    })
+
+    it('mount with ?sort=title but no dir defaults to asc', async () => {
+      const { wrapper } = await mountView('/?sort=title')
+      await flushPromises()
+
+      const items = wrapper.findAll('li')
+      expect(items[0]!.text()).toContain('Adopt TypeScript')
+      expect(items[2]!.text()).toContain('Use Redis')
+    })
+
+    it('invalid ?sort=bogus falls back to default (number asc)', async () => {
+      const { wrapper } = await mountView('/?sort=bogus')
+      await flushPromises()
+
+      const sortGroup = wrapper.find('[aria-label="Sort options"]')
+      const idBtn = sortGroup.findAll('button').find(b => b.text().includes('ID'))!
+      expect(idBtn.attributes('aria-pressed')).toBe('true')
+
+      const items = wrapper.findAll('li')
+      expect(items[0]!.text()).toContain('#1')
+    })
+  })
+
   describe('URL state', () => {
     it('on mount with ?status=Accepted, chip is pre-selected and list is filtered', async () => {
       mockedFetchADRs.mockResolvedValue([

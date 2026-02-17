@@ -1,9 +1,25 @@
 <script setup lang="ts">
 import { ref, computed, watch, nextTick, onMounted, onUnmounted } from 'vue'
 import { RouterLink, useRoute, useRouter } from 'vue-router'
-import type { ADRSummary } from '../types'
+import type { ADRSummary, SortField, SortDirection } from '../types'
 import { fetchADRs, fetchStatuses } from '../api'
 import StatusFilterChips from '../components/StatusFilterChips.vue'
+
+const STATUS_ORDER: Record<string, number> = {
+  proposed: 0, accepted: 1, deprecated: 2, superseded: 3, rejected: 4,
+}
+
+function statusOrdinal(status: string): number {
+  return STATUS_ORDER[status.toLowerCase()] ?? 999
+}
+
+const SORT_FIELDS = [
+  { value: 'number', label: 'ID' },
+  { value: 'title', label: 'Title' },
+  { value: 'status', label: 'Status' },
+] as const satisfies readonly { value: SortField; label: string }[]
+
+const VALID_SORT_FIELDS = new Set<string>(['number', 'title', 'status'])
 
 const route = useRoute()
 const router = useRouter()
@@ -21,10 +37,41 @@ let isInternalNavigation = false
 
 const hasSearchQuery = computed(() => searchQuery.value.trim().length > 0)
 
+const sortField = ref<SortField>('number')
+const sortDirection = ref<SortDirection>('asc')
+
 const filteredADRs = computed(() => {
   if (selectedStatuses.value.size === 0) return adrs.value
   return adrs.value.filter(adr => selectedStatuses.value.has(adr.status))
 })
+
+const sortedADRs = computed(() => {
+  const list = [...filteredADRs.value]
+  const dir = sortDirection.value === 'asc' ? 1 : -1
+  return list.sort((a, b) => {
+    switch (sortField.value) {
+      case 'number': return (a.number - b.number) * dir
+      case 'title':  return a.title.localeCompare(b.title) * dir
+      case 'status': return (statusOrdinal(a.status) - statusOrdinal(b.status)) * dir
+    }
+  })
+})
+
+function setSort(field: SortField) {
+  if (sortField.value === field) {
+    sortDirection.value = sortDirection.value === 'asc' ? 'desc' : 'asc'
+  } else {
+    sortField.value = field
+    sortDirection.value = 'asc'
+  }
+}
+
+function getSortAriaLabel(field: { value: SortField; label: string }): string {
+  if (sortField.value !== field.value) return `Sort by ${field.label}`
+  const dir = sortDirection.value === 'asc' ? 'ascending' : 'descending'
+  const rev = sortDirection.value === 'asc' ? 'descending' : 'ascending'
+  return `Sort by ${field.label}, currently ${dir}, click to sort ${rev}`
+}
 
 async function loadADRs(query?: string) {
   abortController?.abort()
@@ -87,6 +134,12 @@ function buildQuery(): Record<string, string | string[]> {
     const arr = [...selectedStatuses.value]
     q.status = arr.length === 1 ? arr[0]! : arr
   }
+  if (sortField.value !== 'number') {
+    q.sort = sortField.value
+  }
+  if (sortDirection.value !== 'asc') {
+    q.dir = sortDirection.value
+  }
   return q
 }
 
@@ -98,6 +151,10 @@ function syncToURL() {
 }
 
 watch(selectedStatuses, () => {
+  syncToURL()
+})
+
+watch([sortField, sortDirection], () => {
   syncToURL()
 })
 
@@ -115,6 +172,10 @@ watch(() => route.query, (newQuery) => {
   } else {
     searchQuery.value = ''
   }
+  const sortParam = typeof newQuery.sort === 'string' && VALID_SORT_FIELDS.has(newQuery.sort) ? newQuery.sort as SortField : 'number'
+  const dirParam = newQuery.dir === 'desc' ? 'desc' as const : 'asc' as const
+  if (sortField.value !== sortParam) sortField.value = sortParam
+  if (sortDirection.value !== dirParam) sortDirection.value = dirParam
 }, { deep: true })
 
 onMounted(() => {
@@ -126,6 +187,12 @@ onMounted(() => {
   }
   if (typeof route.query.q === 'string') {
     searchQuery.value = route.query.q
+  }
+  if (typeof route.query.sort === 'string' && VALID_SORT_FIELDS.has(route.query.sort)) {
+    sortField.value = route.query.sort as SortField
+  }
+  if (route.query.dir === 'desc') {
+    sortDirection.value = 'desc'
   }
 
   // Load ADRs (with search query from URL if present)
@@ -187,6 +254,27 @@ function statusTextClass(status: string): string {
     />
   </div>
 
+  <!-- Sort controls -->
+  <div class="mb-4 mt-4 flex items-center gap-2">
+    <span class="sr-only sm:not-sr-only text-xs text-gray-500 dark:text-gray-400">Sort by:</span>
+    <div role="group" aria-label="Sort options" class="grid grid-cols-3 gap-1 sm:flex sm:gap-1">
+      <button
+        v-for="field in SORT_FIELDS"
+        :key="field.value"
+        :aria-pressed="sortField === field.value ? 'true' : 'false'"
+        :aria-label="getSortAriaLabel(field)"
+        class="px-2 py-1 text-xs rounded border transition-colors focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-blue-500"
+        :class="sortField === field.value
+          ? 'bg-blue-100 dark:bg-blue-900 text-blue-700 dark:text-blue-300 border-blue-300 dark:border-blue-700'
+          : 'bg-transparent text-gray-600 dark:text-gray-400 border-gray-200 dark:border-gray-700 hover:bg-gray-100 dark:hover:bg-gray-800'"
+        @click="setSort(field.value)"
+      >
+        {{ field.label }}
+        <span v-if="sortField === field.value" aria-hidden="true">{{ sortDirection === 'asc' ? '↑' : '↓' }}</span>
+      </button>
+    </div>
+  </div>
+
   <!-- Loading -->
   <div v-if="loading" role="status" class="text-center py-16 text-gray-500 dark:text-gray-400">
     Loading…
@@ -229,7 +317,7 @@ function statusTextClass(status: string): string {
   <!-- ADR list -->
   <ul v-else aria-live="polite" class="divide-y divide-gray-200 dark:divide-gray-800 border-t border-b border-gray-200 dark:border-gray-800">
     <li
-      v-for="adr in filteredADRs"
+      v-for="adr in sortedADRs"
       :key="adr.number"
     >
       <RouterLink
@@ -267,6 +355,6 @@ function statusTextClass(status: string): string {
 
   <!-- Screen reader count announcement (outside v-if chain) -->
   <div v-if="!loading && !error && adrs.length > 0" class="sr-only" role="status" aria-live="polite" aria-atomic="true">
-    {{ filteredADRs.length }} record{{ filteredADRs.length !== 1 ? 's' : '' }} shown
+    {{ sortedADRs.length }} record{{ sortedADRs.length !== 1 ? 's' : '' }} shown
   </div>
 </template>
