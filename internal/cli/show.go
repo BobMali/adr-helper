@@ -72,8 +72,8 @@ func NewShowCmd() *cobra.Command {
 
 			noColor := plain || os.Getenv("NO_COLOR") != ""
 			formatted := FormatADR(string(content), FormatOptions{NoColor: noColor})
-			fmt.Fprint(cmd.OutOrStdout(), formatted)
-			return nil
+			_, err = fmt.Fprint(cmd.OutOrStdout(), formatted)
+			return err
 		},
 	}
 

@@ -6,6 +6,7 @@ import (
 	"errors"
 	"io"
 	"io/fs"
+	"log"
 	"net/http"
 	"path"
 	"strconv"
@@ -315,5 +316,7 @@ func serveIndexHTML(w http.ResponseWriter, frontend fs.FS) {
 
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	w.Header().Set("Cache-Control", "no-cache")
-	io.Copy(w, f.(io.Reader))
+	if _, err := io.Copy(w, f.(io.Reader)); err != nil {
+		log.Printf("error serving index.html: %v", err)
+	}
 }

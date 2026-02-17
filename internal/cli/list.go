@@ -1,6 +1,7 @@
 package cli
 
 import (
+	"bytes"
 	"encoding/json"
 	"fmt"
 	"os"
@@ -74,16 +75,17 @@ func NewListCmd() *cobra.Command {
 				}
 				colWidth += 3 // padding between columns
 
-				out := cmd.OutOrStdout()
-				fmt.Fprintf(out, "%-*s%s\n", colWidth, "Status", "Count")
+				var buf bytes.Buffer
+				fmt.Fprintf(&buf, "%-*s%s\n", colWidth, "Status", "Count")
 				for _, s := range adr.AllStatuses() {
 					label := statusColor(s.String(), greenStyle, yellowStyle, redStyle)
 					pad := colWidth - len(s.String())
-					fmt.Fprintf(out, "%s%*s%d\n", label, pad, "", counts.ByStatus[s])
+					fmt.Fprintf(&buf, "%s%*s%d\n", label, pad, "", counts.ByStatus[s])
 				}
-				fmt.Fprintln(out)
-				fmt.Fprintf(out, "%-*s%d\n", colWidth, "Total", counts.Total)
-				return nil
+				fmt.Fprintln(&buf)
+				fmt.Fprintf(&buf, "%-*s%d\n", colWidth, "Total", counts.Total)
+				_, err := buf.WriteTo(cmd.OutOrStdout())
+				return err
 			}
 
 			if jsonOutput {
