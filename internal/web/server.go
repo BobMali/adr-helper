@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io"
 	"io/fs"
 	"log"
@@ -63,6 +64,19 @@ func WithRelator(rel Relator) ServerOption {
 	}
 }
 
+// WithConfig provides the project configuration for template rendering.
+func WithConfig(cfg *adr.Config) ServerOption {
+	return func(s *Server) {
+		s.config = cfg
+	}
+}
+
+// Saver can persist a new ADR record.
+type Saver interface {
+	Save(ctx context.Context, record *adr.ADR) error
+	NextNumber(ctx context.Context) (int, error)
+}
+
 // Server holds the web server's dependencies and router.
 type Server struct {
 	router     chi.Router
@@ -71,6 +85,7 @@ type Server struct {
 	updater    StatusUpdater
 	superseder Superseder
 	relator    Relator
+	config     *adr.Config
 }
 
 // NewServer creates a new Server with routes configured.
@@ -83,8 +98,10 @@ func NewServer(repo adr.Repository, opts ...ServerOption) *Server {
 	}
 
 	r.Get("/health", s.handleHealth)
+	r.Get("/api/config", s.handleGetConfig)
 	r.Get("/api/adr", s.handleListADRs)
 	r.Get("/api/adr/statuses", s.handleStatuses)
+	r.Post("/api/adr", s.handleCreateADR)
 	r.Get("/api/adr/{number}", s.handleGetADR)
 	r.Patch("/api/adr/{number}/status", s.handleUpdateStatus)
 	r.Post("/api/adr/{number}/relations", s.handleAddRelation)
@@ -341,6 +358,81 @@ func (s *Server) handleAddRelation(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 	if err := json.NewEncoder(w).Encode(toDetailResponse(*record)); err != nil {
 		http.Error(w, "failed to encode response", http.StatusInternalServerError)
+	}
+}
+
+func (s *Server) handleGetConfig(w http.ResponseWriter, r *http.Request) {
+	if s.config == nil {
+		http.Error(w, "config not available", http.StatusServiceUnavailable)
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	if err := json.NewEncoder(w).Encode(map[string]string{"template": s.config.Template}); err != nil {
+		http.Error(w, "failed to encode response", http.StatusInternalServerError)
+	}
+}
+
+func (s *Server) handleCreateADR(w http.ResponseWriter, r *http.Request) {
+	if s.repo == nil {
+		http.Error(w, "repository not configured", http.StatusServiceUnavailable)
+		return
+	}
+	if s.config == nil {
+		http.Error(w, "config not available", http.StatusServiceUnavailable)
+		return
+	}
+
+	ct := r.Header.Get("Content-Type")
+	if !strings.HasPrefix(ct, "application/json") {
+		http.Error(w, "Content-Type must be application/json", http.StatusBadRequest)
+		return
+	}
+
+	r.Body = http.MaxBytesReader(w, r.Body, 1024)
+	var body struct {
+		Title string `json:"title"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		http.Error(w, "invalid request body", http.StatusBadRequest)
+		return
+	}
+
+	title := strings.TrimSpace(body.Title)
+	if title == "" {
+		http.Error(w, "title is required", http.StatusBadRequest)
+		return
+	}
+
+	templateContent, err := adr.TemplateContent(s.config.Template)
+	if err != nil {
+		http.Error(w, "failed to load template", http.StatusInternalServerError)
+		return
+	}
+
+	nextNum, err := s.repo.NextNumber(r.Context())
+	if err != nil {
+		http.Error(w, "failed to determine next number", http.StatusInternalServerError)
+		return
+	}
+
+	record := adr.New(nextNum, title)
+	record.Content = adr.RenderTemplate(templateContent, record)
+
+	if err := s.repo.Save(r.Context(), record); err != nil {
+		if errors.Is(err, adr.ErrConflict) {
+			http.Error(w, "ADR already exists", http.StatusConflict)
+			return
+		}
+		http.Error(w, "failed to save ADR", http.StatusInternalServerError)
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	w.Header().Set("Location", fmt.Sprintf("/api/adr/%d", record.Number))
+	w.WriteHeader(http.StatusCreated)
+	if err := json.NewEncoder(w).Encode(toDetailResponse(*record)); err != nil {
+		log.Printf("error encoding create response: %v", err)
 	}
 }
 

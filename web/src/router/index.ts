@@ -1,5 +1,6 @@
 import { createRouter, createWebHistory } from 'vue-router'
 import ADRListView from '../views/ADRListView.vue'
+import ADRCreateView from '../views/ADRCreateView.vue'
 import ADRDetailView from '../views/ADRDetailView.vue'
 
 const router = createRouter({
@@ -9,6 +10,11 @@ const router = createRouter({
       path: '/',
       name: 'list',
       component: ADRListView,
+    },
+    {
+      path: '/adr/new',
+      name: 'create',
+      component: ADRCreateView,
     },
     {
       path: '/adr/:number',

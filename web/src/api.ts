@@ -1,4 +1,4 @@
-import type { ADRSummary, ADRDetail } from './types'
+import type { ADRSummary, ADRDetail, CreateADRPayload } from './types'
 
 async function apiFetch(url: string, init?: RequestInit): Promise<Response> {
   try {
@@ -89,9 +89,39 @@ export async function addRelation(number: number, relatedTo: number): Promise<AD
   return res.json()
 }
 
+export async function fetchConfig(): Promise<{ template: string }> {
+  const res = await apiFetch('/api/config')
+  if (!res.ok) {
+    throw new Error(`Failed to fetch config: ${res.status}`)
+  }
+  return res.json()
+}
+
+export async function createADR(payload: CreateADRPayload): Promise<ADRDetail> {
+  const res = await apiFetch('/api/adr', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(payload),
+  })
+  if (res.status === 409) {
+    throw new ConflictError('ADR already exists')
+  }
+  if (!res.ok) {
+    throw new Error(`Failed to create ADR: ${res.status}`)
+  }
+  return res.json()
+}
+
 export class NotFoundError extends Error {
   constructor(message: string) {
     super(message)
     this.name = 'NotFoundError'
+  }
+}
+
+export class ConflictError extends Error {
+  constructor(message: string) {
+    super(message)
+    this.name = 'ConflictError'
   }
 }

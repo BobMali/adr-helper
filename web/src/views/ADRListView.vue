@@ -97,8 +97,14 @@ onMounted(() => {
 </script>
 
 <template>
-  <header class="mb-8">
+  <header class="mb-8 flex items-center justify-between">
     <h1 class="text-2xl font-semibold tracking-tight">Architecture Decision Records</h1>
+    <RouterLink
+      :to="{ name: 'create' }"
+      class="px-4 py-2 text-sm rounded-lg bg-blue-600 text-white hover:bg-blue-700 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-blue-500"
+    >
+      + New ADR
+    </RouterLink>
   </header>
 
   <input
@@ -158,7 +164,15 @@ onMounted(() => {
   <!-- Empty state: no search -->
   <div v-else-if="adrs.length === 0 && !hasSearchQuery" class="text-center py-16">
     <p class="text-lg font-medium text-gray-500 dark:text-gray-400">No ADRs yet</p>
-    <p class="mt-1 text-sm text-gray-400 dark:text-gray-500">Create your first Architecture Decision Record to get started.</p>
+    <p class="mt-1 text-sm text-gray-400 dark:text-gray-500">
+      <RouterLink
+        :to="{ name: 'create' }"
+        class="text-blue-600 dark:text-blue-400 hover:underline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-blue-500"
+      >
+        Create your first ADR
+      </RouterLink>
+      to get started.
+    </p>
   </div>
 
   <!-- Empty state: search with no results -->

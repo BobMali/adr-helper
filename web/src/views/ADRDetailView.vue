@@ -1,6 +1,6 @@
 <script setup lang="ts">
-import { ref, onMounted, nextTick, computed, watch } from 'vue'
-import { RouterLink } from 'vue-router'
+import { ref, onMounted, nextTick, computed, watch, onUnmounted } from 'vue'
+import { RouterLink, useRoute, useRouter } from 'vue-router'
 import { marked } from 'marked'
 import DOMPurify from 'dompurify'
 import type { ADRDetail } from '../types'
@@ -13,6 +13,11 @@ import SupersedeSelector from '../components/SupersedeSelector.vue'
 import RelationInput from '../components/RelationInput.vue'
 
 const props = defineProps<{ number: number }>()
+
+const route = useRoute()
+const router = useRouter()
+const createdBanner = ref(false)
+let bannerTimer: ReturnType<typeof setTimeout> | null = null
 
 const adr = ref<ADRDetail | null>(null)
 const statuses = ref<string[]>([])
@@ -100,6 +105,12 @@ onMounted(async () => {
     selectedStatus.value = adrData.status
     setPreviousStatus(adrData.status)
 
+    if (route.query.created === 'true') {
+      createdBanner.value = true
+      router.replace({ ...route, query: { ...route.query, created: undefined } })
+      bannerTimer = setTimeout(() => { createdBanner.value = false }, 4000)
+    }
+
     await nextTick()
     titleRef.value?.focus()
   } catch (e) {
@@ -111,6 +122,10 @@ onMounted(async () => {
   } finally {
     loading.value = false
   }
+})
+
+onUnmounted(() => {
+  if (bannerTimer) clearTimeout(bannerTimer)
 })
 
 function statusDisplayText(s: string): string {
@@ -233,6 +248,14 @@ async function handleRelationSelect(targetNumber: number) {
         ← Back to list
       </RouterLink>
     </nav>
+
+    <div
+      v-if="createdBanner"
+      role="status"
+      class="mb-4 rounded-lg bg-green-50 dark:bg-green-900/30 border border-green-200 dark:border-green-800 px-4 py-3 text-sm text-green-700 dark:text-green-300"
+    >
+      ADR created successfully
+    </div>
 
     <header class="mb-6">
       <h1

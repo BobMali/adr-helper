@@ -16,6 +16,7 @@ function makeRouter() {
     history: createMemoryHistory(),
     routes: [
       { path: '/', component: ADRListView },
+      { path: '/adr/new', name: 'create', component: { template: '<div />' } },
       { path: '/adr/:number', name: 'detail', component: { template: '<div />' } },
     ],
   })

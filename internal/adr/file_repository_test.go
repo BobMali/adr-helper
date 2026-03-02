@@ -232,6 +232,56 @@ func TestFileRepository_AddRelation_Bidirectional(t *testing.T) {
 	assert.Contains(t, string(targetContent), "Relates to [ADR-0001](0001-use-go.md)")
 }
 
+func TestFileRepository_Save_CreatesFile(t *testing.T) {
+	dir := t.TempDir()
+	repo := NewFileRepository(dir)
+
+	record := New(1, "Use Go")
+	record.Content = "# 1. Use Go\n\n## Status\n\nProposed\n"
+
+	err := repo.Save(context.Background(), record)
+	require.NoError(t, err)
+
+	data, err := os.ReadFile(filepath.Join(dir, "0001-use-go.md"))
+	require.NoError(t, err)
+	assert.Equal(t, record.Content, string(data))
+}
+
+func TestFileRepository_Save_ZeroNumber(t *testing.T) {
+	dir := t.TempDir()
+	repo := NewFileRepository(dir)
+
+	record := &ADR{Number: 0, Title: "Bad", Content: "content"}
+	err := repo.Save(context.Background(), record)
+
+	assert.Error(t, err)
+	assert.ErrorIs(t, err, ErrInvalidRecord)
+}
+
+func TestFileRepository_Save_EmptyContent(t *testing.T) {
+	dir := t.TempDir()
+	repo := NewFileRepository(dir)
+
+	record := &ADR{Number: 1, Title: "Empty", Content: ""}
+	err := repo.Save(context.Background(), record)
+
+	assert.Error(t, err)
+	assert.ErrorIs(t, err, ErrInvalidRecord)
+}
+
+func TestFileRepository_Save_Conflict(t *testing.T) {
+	dir := t.TempDir()
+	writeFile(t, dir, "0001-use-go.md", "existing content")
+
+	repo := NewFileRepository(dir)
+	record := &ADR{Number: 1, Title: "Use Go", Content: "# 1. Use Go\n"}
+
+	err := repo.Save(context.Background(), record)
+
+	assert.Error(t, err)
+	assert.ErrorIs(t, err, ErrConflict)
+}
+
 func writeFile(t *testing.T, dir, name, content string) {
 	t.Helper()
 	err := os.WriteFile(filepath.Join(dir, name), []byte(content), 0o644)

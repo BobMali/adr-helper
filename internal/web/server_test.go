@@ -20,10 +20,15 @@ import (
 var _ adr.Repository = (*mockRepo)(nil)
 
 type mockRepo struct {
-	adrs   []adr.ADR
-	err    error
-	getADR *adr.ADR
-	getErr error
+	adrs       []adr.ADR
+	err        error
+	getADR     *adr.ADR
+	getErr     error
+	saveErr    error
+	saveCalled bool
+	savedADR   *adr.ADR
+	nextNum    int
+	nextErr    error
 }
 
 func (m *mockRepo) List(_ context.Context) ([]adr.ADR, error) { return m.adrs, m.err }
@@ -33,8 +38,12 @@ func (m *mockRepo) Get(_ context.Context, _ int) (*adr.ADR, error) {
 	}
 	return nil, fmt.Errorf("not implemented")
 }
-func (m *mockRepo) Save(_ context.Context, _ *adr.ADR) error  { return nil }
-func (m *mockRepo) NextNumber(_ context.Context) (int, error) { return 0, nil }
+func (m *mockRepo) Save(_ context.Context, record *adr.ADR) error {
+	m.saveCalled = true
+	m.savedADR = record
+	return m.saveErr
+}
+func (m *mockRepo) NextNumber(_ context.Context) (int, error) { return m.nextNum, m.nextErr }
 
 var _ web.StatusUpdater = (*mockUpdater)(nil)
 
@@ -749,6 +758,125 @@ func TestAddRelation_WrongContentType(t *testing.T) {
 	srv.Handler().ServeHTTP(rec, req)
 
 	assert.Equal(t, http.StatusBadRequest, rec.Code)
+}
+
+// --- GET /api/config ---
+
+func TestGetConfig_ReturnsTemplate(t *testing.T) {
+	cfg := &adr.Config{Version: "1", Directory: "docs/adr", Template: "nygard"}
+	srv := web.NewServer(nil, web.WithConfig(cfg))
+
+	req := httptest.NewRequest(http.MethodGet, "/api/config", nil)
+	rec := httptest.NewRecorder()
+
+	srv.Handler().ServeHTTP(rec, req)
+
+	assert.Equal(t, http.StatusOK, rec.Code)
+	assert.Equal(t, "application/json", rec.Header().Get("Content-Type"))
+
+	var body map[string]string
+	err := json.Unmarshal(rec.Body.Bytes(), &body)
+	require.NoError(t, err)
+	assert.Equal(t, "nygard", body["template"])
+}
+
+func TestGetConfig_NoConfig(t *testing.T) {
+	srv := web.NewServer(nil)
+
+	req := httptest.NewRequest(http.MethodGet, "/api/config", nil)
+	rec := httptest.NewRecorder()
+
+	srv.Handler().ServeHTTP(rec, req)
+
+	assert.Equal(t, http.StatusServiceUnavailable, rec.Code)
+}
+
+// --- POST /api/adr ---
+
+func TestCreateADR_Success(t *testing.T) {
+	repo := &mockRepo{nextNum: 3}
+	cfg := &adr.Config{Version: "1", Directory: "docs/adr", Template: "nygard"}
+	srv := web.NewServer(repo, web.WithConfig(cfg))
+
+	body := strings.NewReader(`{"title":"Use PostgreSQL"}`)
+	req := httptest.NewRequest(http.MethodPost, "/api/adr", body)
+	req.Header.Set("Content-Type", "application/json")
+	rec := httptest.NewRecorder()
+
+	srv.Handler().ServeHTTP(rec, req)
+
+	assert.Equal(t, http.StatusCreated, rec.Code)
+	assert.Equal(t, "application/json", rec.Header().Get("Content-Type"))
+	assert.Equal(t, "/api/adr/3", rec.Header().Get("Location"))
+
+	var resp map[string]interface{}
+	err := json.Unmarshal(rec.Body.Bytes(), &resp)
+	require.NoError(t, err)
+	assert.Equal(t, float64(3), resp["number"])
+	assert.Equal(t, "Use PostgreSQL", resp["title"])
+	assert.Equal(t, "Proposed", resp["status"])
+	assert.NotEmpty(t, resp["content"])
+
+	assert.True(t, repo.saveCalled)
+}
+
+func TestCreateADR_MissingTitle(t *testing.T) {
+	repo := &mockRepo{nextNum: 1}
+	cfg := &adr.Config{Version: "1", Directory: "docs/adr", Template: "nygard"}
+	srv := web.NewServer(repo, web.WithConfig(cfg))
+
+	body := strings.NewReader(`{"title":""}`)
+	req := httptest.NewRequest(http.MethodPost, "/api/adr", body)
+	req.Header.Set("Content-Type", "application/json")
+	rec := httptest.NewRecorder()
+
+	srv.Handler().ServeHTTP(rec, req)
+
+	assert.Equal(t, http.StatusBadRequest, rec.Code)
+	assert.Contains(t, rec.Body.String(), "title is required")
+}
+
+func TestCreateADR_NoConfig(t *testing.T) {
+	repo := &mockRepo{}
+	srv := web.NewServer(repo)
+
+	body := strings.NewReader(`{"title":"Something"}`)
+	req := httptest.NewRequest(http.MethodPost, "/api/adr", body)
+	req.Header.Set("Content-Type", "application/json")
+	rec := httptest.NewRecorder()
+
+	srv.Handler().ServeHTTP(rec, req)
+
+	assert.Equal(t, http.StatusServiceUnavailable, rec.Code)
+}
+
+func TestCreateADR_NilRepo(t *testing.T) {
+	cfg := &adr.Config{Version: "1", Directory: "docs/adr", Template: "nygard"}
+	srv := web.NewServer(nil, web.WithConfig(cfg))
+
+	body := strings.NewReader(`{"title":"Something"}`)
+	req := httptest.NewRequest(http.MethodPost, "/api/adr", body)
+	req.Header.Set("Content-Type", "application/json")
+	rec := httptest.NewRecorder()
+
+	srv.Handler().ServeHTTP(rec, req)
+
+	assert.Equal(t, http.StatusServiceUnavailable, rec.Code)
+}
+
+func TestCreateADR_Conflict(t *testing.T) {
+	repo := &mockRepo{nextNum: 1, saveErr: fmt.Errorf("file: %w", adr.ErrConflict)}
+	cfg := &adr.Config{Version: "1", Directory: "docs/adr", Template: "nygard"}
+	srv := web.NewServer(repo, web.WithConfig(cfg))
+
+	body := strings.NewReader(`{"title":"Existing"}`)
+	req := httptest.NewRequest(http.MethodPost, "/api/adr", body)
+	req.Header.Set("Content-Type", "application/json")
+	rec := httptest.NewRecorder()
+
+	srv.Handler().ServeHTTP(rec, req)
+
+	assert.Equal(t, http.StatusConflict, rec.Code)
 }
 
 func trimNewline(s string) string {

@@ -2,6 +2,7 @@ package adr
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -82,8 +83,33 @@ func (r *FileRepository) NextNumber(_ context.Context) (int, error) {
 	return NextNumber(r.dir)
 }
 
-func (r *FileRepository) Save(_ context.Context, _ *ADR) error {
-	return fmt.Errorf("FileRepository.Save not implemented")
+func (r *FileRepository) Save(_ context.Context, record *ADR) error {
+	if record.Number <= 0 {
+		return fmt.Errorf("number must be positive: %w", ErrInvalidRecord)
+	}
+	if record.Content == "" {
+		return fmt.Errorf("content must not be empty: %w", ErrInvalidRecord)
+	}
+
+	filename, err := FormatFilename(record.Number, record.Title)
+	if err != nil {
+		return fmt.Errorf("formatting filename: %w", err)
+	}
+
+	path := filepath.Join(r.dir, filename)
+	f, err := os.OpenFile(path, os.O_CREATE|os.O_EXCL|os.O_WRONLY, 0o644)
+	if err != nil {
+		if errors.Is(err, os.ErrExist) {
+			return fmt.Errorf("file %q: %w", filename, ErrConflict)
+		}
+		return fmt.Errorf("creating %q: %w", filename, err)
+	}
+	defer f.Close()
+
+	if _, err := f.WriteString(record.Content); err != nil {
+		return fmt.Errorf("writing %q: %w", filename, err)
+	}
+	return nil
 }
 
 // Supersede marks the superseded ADR as "Superseded by" the superseding ADR,

@@ -9,5 +9,9 @@ export interface ADRDetail extends ADRSummary {
   content: string
 }
 
+export interface CreateADRPayload {
+  title: string
+}
+
 export type SortField = 'number' | 'title' | 'status'
 export type SortDirection = 'asc' | 'desc'

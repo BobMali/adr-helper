@@ -1,4 +1,4 @@
-import { fetchADRs, fetchADR, fetchStatuses, updateADRStatus, NotFoundError } from './api'
+import { fetchADRs, fetchADR, fetchStatuses, updateADRStatus, fetchConfig, createADR, NotFoundError, ConflictError } from './api'
 
 function mockFetchOk(body: unknown, status = 200) {
   vi.stubGlobal(
@@ -202,5 +202,83 @@ describe('updateADRStatus', () => {
     vi.stubGlobal('fetch', vi.fn().mockRejectedValue(new TypeError('Failed to fetch')))
 
     await expect(updateADRStatus(1, 'Accepted')).rejects.toThrow('Network error: unable to reach server')
+  })
+})
+
+describe('ConflictError', () => {
+  it('is an instance of Error', () => {
+    const err = new ConflictError('conflict')
+    expect(err).toBeInstanceOf(Error)
+  })
+
+  it('has name "ConflictError"', () => {
+    const err = new ConflictError('conflict')
+    expect(err.name).toBe('ConflictError')
+  })
+})
+
+describe('fetchConfig', () => {
+  it('GETs /api/config and returns config object', async () => {
+    const data = { template: 'nygard' }
+    mockFetchOk(data)
+
+    const result = await fetchConfig()
+
+    expect(fetch).toHaveBeenCalledWith('/api/config')
+    expect(result).toEqual(data)
+  })
+
+  it('throws on non-ok response', async () => {
+    mockFetchFail(503)
+
+    await expect(fetchConfig()).rejects.toThrow('Failed to fetch config: 503')
+  })
+
+  it('wraps network TypeError with user-friendly message', async () => {
+    vi.stubGlobal('fetch', vi.fn().mockRejectedValue(new TypeError('Failed to fetch')))
+
+    await expect(fetchConfig()).rejects.toThrow('Network error: unable to reach server')
+  })
+})
+
+describe('createADR', () => {
+  it('POSTs to /api/adr with title and returns ADRDetail', async () => {
+    const data = { number: 1, title: 'Use Go', status: 'Proposed', date: '2026-03-02', content: '# 1. Use Go' }
+    vi.stubGlobal(
+      'fetch',
+      vi.fn().mockResolvedValue({
+        ok: true,
+        status: 201,
+        json: () => Promise.resolve(data),
+      }),
+    )
+
+    const result = await createADR({ title: 'Use Go' })
+
+    expect(fetch).toHaveBeenCalledWith('/api/adr', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ title: 'Use Go' }),
+    })
+    expect(result).toEqual(data)
+  })
+
+  it('throws ConflictError on 409', async () => {
+    mockFetchFail(409)
+
+    await expect(createADR({ title: 'Existing' })).rejects.toThrow(ConflictError)
+    await expect(createADR({ title: 'Existing' })).rejects.toThrow('ADR already exists')
+  })
+
+  it('throws generic Error on other failures', async () => {
+    mockFetchFail(500)
+
+    await expect(createADR({ title: 'Something' })).rejects.toThrow('Failed to create ADR: 500')
+  })
+
+  it('wraps network TypeError with user-friendly message', async () => {
+    vi.stubGlobal('fetch', vi.fn().mockRejectedValue(new TypeError('Failed to fetch')))
+
+    await expect(createADR({ title: 'Something' })).rejects.toThrow('Network error: unable to reach server')
   })
 })

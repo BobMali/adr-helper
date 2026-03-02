@@ -10,6 +10,12 @@ import (
 // ErrNotFound is returned when an ADR cannot be found.
 var ErrNotFound = errors.New("ADR not found")
 
+// ErrConflict is returned when an ADR file already exists.
+var ErrConflict = errors.New("conflict: ADR already exists")
+
+// ErrInvalidRecord is returned when an ADR record has invalid fields.
+var ErrInvalidRecord = errors.New("invalid ADR record")
+
 // Status represents the lifecycle state of an ADR.
 type Status int
 
