@@ -26,6 +26,7 @@ func main() {
 		repo = fileRepo
 		opts = append(opts, web.WithStatusUpdater(fileRepo))
 		opts = append(opts, web.WithSuperseder(fileRepo))
+		opts = append(opts, web.WithRelator(fileRepo))
 	}
 	if subFS, err := fs.Sub(webui.DistFS, "dist"); err == nil {
 		if _, err := subFS.Open("index.html"); err == nil {

@@ -6,13 +6,13 @@ import (
 	"strings"
 )
 
-// SupersedesLink holds the number and filename for a cross-reference.
-type SupersedesLink struct {
+// ADRLink holds the number and filename for a cross-reference.
+type ADRLink struct {
 	Number   int
 	Filename string
 }
 
-func formatLink(link SupersedesLink) string {
+func formatADRLink(link ADRLink) string {
 	return fmt.Sprintf("[ADR-%04d](%s)", link.Number, link.Filename)
 }
 
@@ -175,33 +175,33 @@ func getFrontmatterStatusValue(content string) string {
 }
 
 // SetSupersededBy updates the content's status to "Superseded by [ADR-N](filename)".
-func SetSupersededBy(content string, link SupersedesLink) (string, error) {
+func SetSupersededBy(content string, link ADRLink) (string, error) {
 	// Markdown needs two spaces at the end to display new line
-	statusText := "Superseded by " + formatLink(link) + "  "
+	statusText := "Superseded by " + formatADRLink(link) + "  "
 
 	if hasStatusSection(content) {
 		return replaceStatusSectionContent(content, statusText), nil
 	}
 	if hasFrontmatterStatus(content) {
-		return replaceFrontmatterStatus(content, "superseded by "+formatLink(link)+"  "), nil
+		return replaceFrontmatterStatus(content, "superseded by "+formatADRLink(link)+"  "), nil
 	}
 	return "", fmt.Errorf("no status section found: expected ## Status heading or status: in YAML frontmatter")
 }
 
 // SetSupersedes updates the content's status with "Supersedes [ADR-N](filename)" entries.
 // Supersedes links are appended below the existing status text, not replacing it.
-func SetSupersedes(content string, links []SupersedesLink) (string, error) {
+func SetSupersedes(content string, links []ADRLink) (string, error) {
 	if hasStatusSection(content) {
 		var lines []string
 		for _, link := range links {
-			lines = append(lines, "Supersedes "+formatLink(link)+"  ")
+			lines = append(lines, "Supersedes "+formatADRLink(link)+"  ")
 		}
 		return appendToStatusSectionContent(content, strings.Join(lines, "\n")), nil
 	}
 	if hasFrontmatterStatus(content) {
 		var refs []string
 		for _, link := range links {
-			refs = append(refs, formatLink(link))
+			refs = append(refs, formatADRLink(link))
 		}
 		currentStatus := getFrontmatterStatusValue(content)
 		newValue := currentStatus + ", supersedes " + strings.Join(refs, ", ") + "  "

@@ -62,14 +62,14 @@ func NewNewCmd() *cobra.Command {
 					content string
 				}
 				var mutations []mutation
-				var links []adr.SupersedesLink
+				var links []adr.ADRLink
 
 				for _, id := range ids {
 					oldFilename, err := adr.FindADRFile(cfg.Directory, id)
 					if err != nil {
 						return fmt.Errorf("cannot supersede ADR %04d: %w", id, err)
 					}
-					links = append(links, adr.SupersedesLink{Number: id, Filename: oldFilename})
+					links = append(links, adr.ADRLink{Number: id, Filename: oldFilename})
 
 					// Read and compute new content
 					oldPath := filepath.Join(cfg.Directory, oldFilename)
@@ -78,7 +78,7 @@ func NewNewCmd() *cobra.Command {
 						return fmt.Errorf("reading ADR %04d: %w", id, err)
 					}
 
-					newLink := adr.SupersedesLink{Number: number, Filename: filename}
+					newLink := adr.ADRLink{Number: number, Filename: filename}
 					updatedContent, err := adr.SetSupersededBy(string(oldContent), newLink)
 					if err != nil {
 						return fmt.Errorf("updating ADR %04d: %w", id, err)

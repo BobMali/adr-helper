@@ -7,7 +7,10 @@ import type { ADRDetail } from '../types'
 import { fetchADR, fetchStatuses, NotFoundError } from '../api'
 import { useStatusUpdate } from '../composables/useStatusUpdate'
 import { useSupersede } from '../composables/useSupersede'
+import { useRelation } from '../composables/useRelation'
+import { useADRSearch } from '../composables/useADRSearch'
 import SupersedeSelector from '../components/SupersedeSelector.vue'
+import RelationInput from '../components/RelationInput.vue'
 
 const props = defineProps<{ number: number }>()
 
@@ -20,10 +23,13 @@ const titleRef = ref<HTMLHeadingElement | null>(null)
 
 const selectedStatus = ref('')
 
+const showRelationInput = ref(false)
+const addRelationBtnRef = ref<HTMLButtonElement | null>(null)
+
 const {
   updating,
-  feedback,
-  feedbackType,
+  feedback: statusFeedback,
+  feedbackType: statusFeedbackType,
   doStatusUpdate,
   setPreviousStatus,
   getPreviousStatus,
@@ -37,6 +43,35 @@ const {
   startSupersede,
   cancelSupersede,
 } = useSupersede(props.number)
+
+const {
+  adding,
+  feedback: relationFeedback,
+  feedbackType: relationFeedbackType,
+  confirmRelation,
+} = useRelation(props.number)
+
+const search = useADRSearch()
+
+const filteredRelationResults = computed(() =>
+  search.adrs.value.filter(a => a.number !== props.number),
+)
+
+const relationSearching = computed(() =>
+  search.loading.value && search.hasSearchQuery.value,
+)
+
+// Most-recent-wins feedback: show whichever was set most recently
+const activeFeedback = computed(() => {
+  if (relationFeedback.value) return relationFeedback.value
+  if (statusFeedback.value) return statusFeedback.value
+  return ''
+})
+const activeFeedbackType = computed(() => {
+  if (relationFeedback.value) return relationFeedbackType.value
+  if (statusFeedback.value) return statusFeedbackType.value
+  return ''
+})
 
 const renderedContent = computed(() => {
   if (!adr.value?.content) return ''
@@ -90,6 +125,7 @@ watch(selectedStatus, async (newStatus) => {
   }
 
   if (newStatus === 'Superseded') {
+    showRelationInput.value = false
     await startSupersede()
     return
   }
@@ -128,6 +164,33 @@ function onSelectorKeydown(event: KeyboardEvent) {
   } else if (event.key === 'Enter' && supersededBy.value != null) {
     event.preventDefault()
     confirmSupersede()
+  }
+}
+
+function openRelationPanel() {
+  cancelSupersede()
+  selectedStatus.value = getPreviousStatus()
+  showRelationInput.value = true
+}
+
+function closeRelationPanel() {
+  showRelationInput.value = false
+  search.searchQuery.value = ''
+  nextTick(() => {
+    addRelationBtnRef.value?.focus()
+  })
+}
+
+function onRelationSearch(query: string) {
+  search.searchQuery.value = query
+  search.onSearchInput()
+}
+
+async function handleRelationSelect(targetNumber: number) {
+  const updated = await confirmRelation(targetNumber)
+  if (updated) {
+    adr.value = updated
+    closeRelationPanel()
   }
 }
 </script>
@@ -198,6 +261,17 @@ function onSelectorKeydown(event: KeyboardEvent) {
           </select>
           <span v-if="pendingSuperseded" class="sr-only">Status dropdown disabled while selecting superseding ADR</span>
         </div>
+
+        <button
+          ref="addRelationBtnRef"
+          v-if="!showRelationInput && !pendingSuperseded"
+          :disabled="updating || adding"
+          :aria-expanded="showRelationInput"
+          class="text-sm text-blue-600 dark:text-blue-400 hover:underline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-blue-500 disabled:opacity-50"
+          @click="openRelationPanel"
+        >
+          + Add relation
+        </button>
       </div>
 
       <!-- Supersede selector -->
@@ -213,16 +287,27 @@ function onSelectorKeydown(event: KeyboardEvent) {
         @keydown="onSelectorKeydown"
       />
 
+      <!-- Relation input -->
+      <RelationInput
+        v-if="showRelationInput"
+        :search-results="filteredRelationResults"
+        :searching="relationSearching"
+        :disabled="adding"
+        @search="onRelationSearch"
+        @select="handleRelationSelect"
+        @cancel="closeRelationPanel"
+      />
+
       <div
         aria-live="polite"
         aria-atomic="true"
         class="mt-2 text-sm min-h-[1.25rem]"
       >
         <span
-          v-if="feedback"
-          :class="feedbackType === 'success' ? 'text-green-600 dark:text-green-400' : 'text-red-600 dark:text-red-400'"
+          v-if="activeFeedback"
+          :class="activeFeedbackType === 'success' ? 'text-green-600 dark:text-green-400' : 'text-red-600 dark:text-red-400'"
         >
-          {{ feedback }}
+          {{ activeFeedback }}
         </span>
       </div>
     </header>

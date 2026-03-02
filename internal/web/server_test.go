@@ -597,6 +597,160 @@ func TestListADRs_FilterNoMatches_ReturnsEmptyArray(t *testing.T) {
 	assert.Equal(t, "[]", trimNewline(rec.Body.String()))
 }
 
+// --- POST /api/adr/{number}/relations ---
+
+var _ web.Relator = (*mockRelator)(nil)
+
+type mockRelator struct {
+	result     *adr.ADR
+	err        error
+	calledWith [2]int
+	called     bool
+}
+
+func (m *mockRelator) AddRelation(_ context.Context, sourceNum, targetNum int) (*adr.ADR, error) {
+	m.called = true
+	m.calledWith = [2]int{sourceNum, targetNum}
+	return m.result, m.err
+}
+
+func TestAddRelation_Success(t *testing.T) {
+	relator := &mockRelator{
+		result: &adr.ADR{
+			Number:  1,
+			Title:   "Use Go",
+			Status:  adr.Accepted,
+			Date:    time.Date(2024, 1, 15, 0, 0, 0, 0, time.UTC),
+			Content: "# 1. Use Go\n\n## Status\n\nAccepted\n\n## Relations\n\nRelates to [ADR-0003](0003-use-chi.md)  \n",
+		},
+	}
+	repo := &mockRepo{}
+	srv := web.NewServer(repo, web.WithRelator(relator))
+
+	body := strings.NewReader(`{"relatedTo":3}`)
+	req := httptest.NewRequest(http.MethodPost, "/api/adr/1/relations", body)
+	req.Header.Set("Content-Type", "application/json")
+	rec := httptest.NewRecorder()
+
+	srv.Handler().ServeHTTP(rec, req)
+
+	assert.Equal(t, http.StatusOK, rec.Code)
+	assert.True(t, relator.called)
+	assert.Equal(t, [2]int{1, 3}, relator.calledWith)
+
+	var resp map[string]interface{}
+	err := json.Unmarshal(rec.Body.Bytes(), &resp)
+	require.NoError(t, err)
+	assert.Equal(t, float64(1), resp["number"])
+	assert.NotEmpty(t, resp["content"])
+}
+
+func TestAddRelation_InvalidNumber(t *testing.T) {
+	repo := &mockRepo{}
+	relator := &mockRelator{}
+	srv := web.NewServer(repo, web.WithRelator(relator))
+
+	body := strings.NewReader(`{"relatedTo":3}`)
+	req := httptest.NewRequest(http.MethodPost, "/api/adr/abc/relations", body)
+	req.Header.Set("Content-Type", "application/json")
+	rec := httptest.NewRecorder()
+
+	srv.Handler().ServeHTTP(rec, req)
+
+	assert.Equal(t, http.StatusBadRequest, rec.Code)
+}
+
+func TestAddRelation_MissingRelatedTo(t *testing.T) {
+	repo := &mockRepo{}
+	relator := &mockRelator{}
+	srv := web.NewServer(repo, web.WithRelator(relator))
+
+	body := strings.NewReader(`{}`)
+	req := httptest.NewRequest(http.MethodPost, "/api/adr/1/relations", body)
+	req.Header.Set("Content-Type", "application/json")
+	rec := httptest.NewRecorder()
+
+	srv.Handler().ServeHTTP(rec, req)
+
+	assert.Equal(t, http.StatusBadRequest, rec.Code)
+	assert.Contains(t, rec.Body.String(), "relatedTo must be a positive integer")
+}
+
+func TestAddRelation_SelfRelation(t *testing.T) {
+	repo := &mockRepo{}
+	relator := &mockRelator{}
+	srv := web.NewServer(repo, web.WithRelator(relator))
+
+	body := strings.NewReader(`{"relatedTo":1}`)
+	req := httptest.NewRequest(http.MethodPost, "/api/adr/1/relations", body)
+	req.Header.Set("Content-Type", "application/json")
+	rec := httptest.NewRecorder()
+
+	srv.Handler().ServeHTTP(rec, req)
+
+	assert.Equal(t, http.StatusBadRequest, rec.Code)
+	assert.Contains(t, rec.Body.String(), "cannot relate an ADR to itself")
+}
+
+func TestAddRelation_NotFound(t *testing.T) {
+	relator := &mockRelator{
+		err: fmt.Errorf("ADR 0099: %w", adr.ErrNotFound),
+	}
+	repo := &mockRepo{}
+	srv := web.NewServer(repo, web.WithRelator(relator))
+
+	body := strings.NewReader(`{"relatedTo":3}`)
+	req := httptest.NewRequest(http.MethodPost, "/api/adr/99/relations", body)
+	req.Header.Set("Content-Type", "application/json")
+	rec := httptest.NewRecorder()
+
+	srv.Handler().ServeHTTP(rec, req)
+
+	assert.Equal(t, http.StatusNotFound, rec.Code)
+}
+
+func TestAddRelation_NoRelator(t *testing.T) {
+	repo := &mockRepo{}
+	srv := web.NewServer(repo)
+
+	body := strings.NewReader(`{"relatedTo":3}`)
+	req := httptest.NewRequest(http.MethodPost, "/api/adr/1/relations", body)
+	req.Header.Set("Content-Type", "application/json")
+	rec := httptest.NewRecorder()
+
+	srv.Handler().ServeHTTP(rec, req)
+
+	assert.Equal(t, http.StatusNotImplemented, rec.Code)
+}
+
+func TestAddRelation_NilRepo(t *testing.T) {
+	srv := web.NewServer(nil)
+
+	body := strings.NewReader(`{"relatedTo":3}`)
+	req := httptest.NewRequest(http.MethodPost, "/api/adr/1/relations", body)
+	req.Header.Set("Content-Type", "application/json")
+	rec := httptest.NewRecorder()
+
+	srv.Handler().ServeHTTP(rec, req)
+
+	assert.Equal(t, http.StatusServiceUnavailable, rec.Code)
+}
+
+func TestAddRelation_WrongContentType(t *testing.T) {
+	repo := &mockRepo{}
+	relator := &mockRelator{}
+	srv := web.NewServer(repo, web.WithRelator(relator))
+
+	body := strings.NewReader(`{"relatedTo":3}`)
+	req := httptest.NewRequest(http.MethodPost, "/api/adr/1/relations", body)
+	req.Header.Set("Content-Type", "text/plain")
+	rec := httptest.NewRecorder()
+
+	srv.Handler().ServeHTTP(rec, req)
+
+	assert.Equal(t, http.StatusBadRequest, rec.Code)
+}
+
 func trimNewline(s string) string {
 	if len(s) > 0 && s[len(s)-1] == '\n' {
 		return s[:len(s)-1]

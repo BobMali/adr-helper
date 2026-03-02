@@ -74,6 +74,21 @@ export async function updateADRStatus(
   return res.json()
 }
 
+export async function addRelation(number: number, relatedTo: number): Promise<ADRDetail> {
+  const res = await apiFetch(`/api/adr/${number}/relations`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ relatedTo }),
+  })
+  if (res.status === 404) {
+    throw new NotFoundError(`ADR #${number} not found`)
+  }
+  if (!res.ok) {
+    throw new Error(`Failed to add relation: ${res.status}`)
+  }
+  return res.json()
+}
+
 export class NotFoundError extends Error {
   constructor(message: string) {
     super(message)

@@ -110,7 +110,7 @@ func (r *FileRepository) Supersede(_ context.Context, supersededNum, superseding
 		return nil, fmt.Errorf("reading %q: %w", supersedingFile, err)
 	}
 
-	updatedSuperseded, err := SetSupersededBy(string(supersededContent), SupersedesLink{
+	updatedSuperseded, err := SetSupersededBy(string(supersededContent), ADRLink{
 		Number:   supersedingNum,
 		Filename: supersedingFile,
 	})
@@ -118,7 +118,7 @@ func (r *FileRepository) Supersede(_ context.Context, supersededNum, superseding
 		return nil, fmt.Errorf("setting superseded-by on ADR %d: %w", supersededNum, err)
 	}
 
-	updatedSuperseding, err := SetSupersedes(string(supersedingContent), []SupersedesLink{{
+	updatedSuperseding, err := SetSupersedes(string(supersedingContent), []ADRLink{{
 		Number:   supersededNum,
 		Filename: supersededFile,
 	}})
@@ -140,6 +140,58 @@ func (r *FileRepository) Supersede(_ context.Context, supersededNum, superseding
 		return nil, err
 	}
 	record.Content = updatedSuperseded
+	return &record, nil
+}
+
+// AddRelation adds bidirectional "Relates to" links between two ADR files.
+// Writes the target file first, then the source — if the target write fails, the source is untouched.
+// Note: the two-file write is not atomic (same risk as Supersede).
+func (r *FileRepository) AddRelation(_ context.Context, sourceNum, targetNum int) (*ADR, error) {
+	sourceFile, err := FindADRFile(r.dir, sourceNum)
+	if err != nil {
+		return nil, err
+	}
+	targetFile, err := FindADRFile(r.dir, targetNum)
+	if err != nil {
+		return nil, err
+	}
+
+	sourcePath := filepath.Join(r.dir, sourceFile)
+	targetPath := filepath.Join(r.dir, targetFile)
+
+	sourceContent, err := os.ReadFile(sourcePath)
+	if err != nil {
+		return nil, fmt.Errorf("reading %q: %w", sourceFile, err)
+	}
+	targetContent, err := os.ReadFile(targetPath)
+	if err != nil {
+		return nil, fmt.Errorf("reading %q: %w", targetFile, err)
+	}
+
+	updatedSource, err := AddRelation(string(sourceContent), ADRLink{Number: targetNum, Filename: targetFile})
+	if err != nil {
+		return nil, fmt.Errorf("adding relation to ADR %d: %w", sourceNum, err)
+	}
+
+	updatedTarget, err := AddRelation(string(targetContent), ADRLink{Number: sourceNum, Filename: sourceFile})
+	if err != nil {
+		return nil, fmt.Errorf("adding relation to ADR %d: %w", targetNum, err)
+	}
+
+	// Write target first — if it fails, source stays untouched
+	if err := os.WriteFile(targetPath, []byte(updatedTarget), 0o644); err != nil {
+		return nil, fmt.Errorf("writing %q: %w", targetFile, err)
+	}
+	if err := os.WriteFile(sourcePath, []byte(updatedSource), 0o644); err != nil {
+		return nil, fmt.Errorf("writing %q: %w", sourceFile, err)
+	}
+
+	meta := ExtractMetadata(updatedSource)
+	record, err := MetadataToADR(meta, sourceNum)
+	if err != nil {
+		return nil, err
+	}
+	record.Content = updatedSource
 	return &record, nil
 }
 

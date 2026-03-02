@@ -26,6 +26,11 @@ type Superseder interface {
 	Supersede(ctx context.Context, supersededNum, supersedingNum int) (*adr.ADR, error)
 }
 
+// Relator adds bidirectional relation links between two ADRs.
+type Relator interface {
+	AddRelation(ctx context.Context, sourceNum, targetNum int) (*adr.ADR, error)
+}
+
 // ServerOption configures optional Server behaviour.
 type ServerOption func(*Server)
 
@@ -51,6 +56,13 @@ func WithSuperseder(sup Superseder) ServerOption {
 	}
 }
 
+// WithRelator enables the relation endpoint.
+func WithRelator(rel Relator) ServerOption {
+	return func(s *Server) {
+		s.relator = rel
+	}
+}
+
 // Server holds the web server's dependencies and router.
 type Server struct {
 	router     chi.Router
@@ -58,6 +70,7 @@ type Server struct {
 	frontend   fs.FS
 	updater    StatusUpdater
 	superseder Superseder
+	relator    Relator
 }
 
 // NewServer creates a new Server with routes configured.
@@ -74,6 +87,7 @@ func NewServer(repo adr.Repository, opts ...ServerOption) *Server {
 	r.Get("/api/adr/statuses", s.handleStatuses)
 	r.Get("/api/adr/{number}", s.handleGetADR)
 	r.Patch("/api/adr/{number}/status", s.handleUpdateStatus)
+	r.Post("/api/adr/{number}/relations", s.handleAddRelation)
 
 	if s.frontend != nil {
 		r.NotFound(spaHandler(s.frontend))
@@ -262,6 +276,65 @@ func (s *Server) handleUpdateStatus(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		http.Error(w, "failed to update status", http.StatusInternalServerError)
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	if err := json.NewEncoder(w).Encode(toDetailResponse(*record)); err != nil {
+		http.Error(w, "failed to encode response", http.StatusInternalServerError)
+	}
+}
+
+func (s *Server) handleAddRelation(w http.ResponseWriter, r *http.Request) {
+	if s.repo == nil {
+		http.Error(w, "repository not configured", http.StatusServiceUnavailable)
+		return
+	}
+
+	if s.relator == nil {
+		http.Error(w, "relations not supported", http.StatusNotImplemented)
+		return
+	}
+
+	numberStr := chi.URLParam(r, "number")
+	number, err := strconv.Atoi(numberStr)
+	if err != nil || number <= 0 {
+		http.Error(w, "invalid ADR number", http.StatusBadRequest)
+		return
+	}
+
+	ct := r.Header.Get("Content-Type")
+	if !strings.HasPrefix(ct, "application/json") {
+		http.Error(w, "Content-Type must be application/json", http.StatusBadRequest)
+		return
+	}
+
+	r.Body = http.MaxBytesReader(w, r.Body, 1024)
+	var body struct {
+		RelatedTo int `json:"relatedTo"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		http.Error(w, "invalid request body", http.StatusBadRequest)
+		return
+	}
+
+	if body.RelatedTo <= 0 {
+		http.Error(w, "relatedTo must be a positive integer", http.StatusBadRequest)
+		return
+	}
+
+	if body.RelatedTo == number {
+		http.Error(w, "cannot relate an ADR to itself", http.StatusBadRequest)
+		return
+	}
+
+	record, err := s.relator.AddRelation(r.Context(), number, body.RelatedTo)
+	if err != nil {
+		if errors.Is(err, adr.ErrNotFound) {
+			http.Error(w, "ADR not found", http.StatusNotFound)
+			return
+		}
+		http.Error(w, "failed to add relation", http.StatusInternalServerError)
 		return
 	}
 

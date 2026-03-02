@@ -214,6 +214,24 @@ func TestFileRepository_Supersede_NotFound(t *testing.T) {
 	assert.ErrorIs(t, err, ErrNotFound)
 }
 
+func TestFileRepository_AddRelation_Bidirectional(t *testing.T) {
+	dir := t.TempDir()
+	writeFile(t, dir, "0001-use-go.md", "# 1. Use Go\n\nDate: 2024-01-15\n\n## Status\n\nAccepted\n\n## Context\n\nSome context.\n")
+	writeFile(t, dir, "0003-use-chi.md", "# 3. Use Chi\n\nDate: 2024-02-01\n\n## Status\n\nProposed\n\n## Context\n\nOther context.\n")
+
+	repo := NewFileRepository(dir)
+	result, err := repo.AddRelation(context.Background(), 1, 3)
+
+	require.NoError(t, err)
+	assert.Equal(t, 1, result.Number)
+	assert.Contains(t, result.Content, "Relates to [ADR-0003](0003-use-chi.md)")
+
+	// Verify target file also got updated
+	targetContent, err := os.ReadFile(filepath.Join(dir, "0003-use-chi.md"))
+	require.NoError(t, err)
+	assert.Contains(t, string(targetContent), "Relates to [ADR-0001](0001-use-go.md)")
+}
+
 func writeFile(t *testing.T, dir, name, content string) {
 	t.Helper()
 	err := os.WriteFile(filepath.Join(dir, name), []byte(content), 0o644)

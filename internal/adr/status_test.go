@@ -84,7 +84,7 @@ func TestUpdateStatus_FrontmatterPreservesSupersedes(t *testing.T) {
 
 func TestSetSupersededBy_NygardFormat(t *testing.T) {
 	content := "# 1. Use Go\n\nDate: 2024-01-01\n\n## Status\n\nAccepted\n\n## Context\n\nSome context.\n"
-	link := adr.SupersedesLink{Number: 6, Filename: "0006-new.md"}
+	link := adr.ADRLink{Number: 6, Filename: "0006-new.md"}
 
 	result, err := adr.SetSupersededBy(content, link)
 	require.NoError(t, err)
@@ -94,7 +94,7 @@ func TestSetSupersededBy_NygardFormat(t *testing.T) {
 
 func TestSetSupersededBy_NygardWithPlaceholder(t *testing.T) {
 	content := "# 1. Use Go\n\nDate: 2024-01-01\n\n## Status\n\nWhat is the status, such as proposed, accepted, rejected, deprecated, superseded, etc.?\n\n## Context\n\nSome context.\n"
-	link := adr.SupersedesLink{Number: 6, Filename: "0006-new.md"}
+	link := adr.ADRLink{Number: 6, Filename: "0006-new.md"}
 
 	result, err := adr.SetSupersededBy(content, link)
 	require.NoError(t, err)
@@ -103,7 +103,7 @@ func TestSetSupersededBy_NygardWithPlaceholder(t *testing.T) {
 
 func TestSetSupersededBy_NygardStatusAtEndOfFile(t *testing.T) {
 	content := "# 1. Use Go\n\n## Status\n\nAccepted\n"
-	link := adr.SupersedesLink{Number: 6, Filename: "0006-new.md"}
+	link := adr.ADRLink{Number: 6, Filename: "0006-new.md"}
 
 	result, err := adr.SetSupersededBy(content, link)
 	require.NoError(t, err)
@@ -113,7 +113,7 @@ func TestSetSupersededBy_NygardStatusAtEndOfFile(t *testing.T) {
 
 func TestSetSupersededBy_NygardPreservesOtherSections(t *testing.T) {
 	content := "# 1. Use Go\n\nDate: 2024-01-01\n\n## Status\n\nAccepted\n\n## Context\n\nContext text.\n\n## Decision\n\nDecision text.\n\n## Consequences\n\nConsequences text.\n"
-	link := adr.SupersedesLink{Number: 6, Filename: "0006-new.md"}
+	link := adr.ADRLink{Number: 6, Filename: "0006-new.md"}
 
 	result, err := adr.SetSupersededBy(content, link)
 	require.NoError(t, err)
@@ -124,7 +124,7 @@ func TestSetSupersededBy_NygardPreservesOtherSections(t *testing.T) {
 
 func TestSetSupersededBy_MADRFullFrontmatter(t *testing.T) {
 	content := "---\nstatus: \"accepted\"\ndate: 2024-01-01\n---\n\n# 1. Use Go\n\n## Context and Problem Statement\n\nSome context.\n"
-	link := adr.SupersedesLink{Number: 6, Filename: "0006-new.md"}
+	link := adr.ADRLink{Number: 6, Filename: "0006-new.md"}
 
 	result, err := adr.SetSupersededBy(content, link)
 	require.NoError(t, err)
@@ -134,7 +134,7 @@ func TestSetSupersededBy_MADRFullFrontmatter(t *testing.T) {
 
 func TestSetSupersededBy_MADRFrontmatterScopedToBlock(t *testing.T) {
 	content := "---\nstatus: \"accepted\"\ndate: 2024-01-01\n---\n\n# 1. Use Go\n\nstatus: this should not change\n"
-	link := adr.SupersedesLink{Number: 6, Filename: "0006-new.md"}
+	link := adr.ADRLink{Number: 6, Filename: "0006-new.md"}
 
 	result, err := adr.SetSupersededBy(content, link)
 	require.NoError(t, err)
@@ -144,7 +144,7 @@ func TestSetSupersededBy_MADRFrontmatterScopedToBlock(t *testing.T) {
 
 func TestSetSupersededBy_AlreadySuperseded(t *testing.T) {
 	content := "# 1. Use Go\n\n## Status\n\nSuperseded by [ADR-0003](0003-old.md)\n\n## Context\n\nSome context.\n"
-	link := adr.SupersedesLink{Number: 6, Filename: "0006-new.md"}
+	link := adr.ADRLink{Number: 6, Filename: "0006-new.md"}
 
 	result, err := adr.SetSupersededBy(content, link)
 	require.NoError(t, err)
@@ -154,7 +154,7 @@ func TestSetSupersededBy_AlreadySuperseded(t *testing.T) {
 
 func TestSetSupersededBy_NoStatusSection_ReturnsError(t *testing.T) {
 	content := "# 1. Use Go\n\n## Context\n\nSome context.\n"
-	link := adr.SupersedesLink{Number: 6, Filename: "0006-new.md"}
+	link := adr.ADRLink{Number: 6, Filename: "0006-new.md"}
 
 	_, err := adr.SetSupersededBy(content, link)
 	assert.Error(t, err)
@@ -162,7 +162,7 @@ func TestSetSupersededBy_NoStatusSection_ReturnsError(t *testing.T) {
 
 func TestSetSupersedes_NygardSingle(t *testing.T) {
 	content := "# 2. Better\n\nDate: 2024-01-01\n\n## Status\n\nProposed\n\n## Context\n\nSome context.\n"
-	links := []adr.SupersedesLink{{Number: 1, Filename: "0001-old.md"}}
+	links := []adr.ADRLink{{Number: 1, Filename: "0001-old.md"}}
 
 	result, err := adr.SetSupersedes(content, links)
 	require.NoError(t, err)
@@ -171,7 +171,7 @@ func TestSetSupersedes_NygardSingle(t *testing.T) {
 
 func TestSetSupersedes_NygardMultiple(t *testing.T) {
 	content := "# 6. Better\n\nDate: 2024-01-01\n\n## Status\n\nProposed\n\n## Context\n\nSome context.\n"
-	links := []adr.SupersedesLink{
+	links := []adr.ADRLink{
 		{Number: 1, Filename: "0001-first.md"},
 		{Number: 5, Filename: "0005-fifth.md"},
 	}
@@ -183,7 +183,7 @@ func TestSetSupersedes_NygardMultiple(t *testing.T) {
 
 func TestSetSupersedes_MADRFullFrontmatter(t *testing.T) {
 	content := "---\nstatus: \"proposed\"\ndate: 2024-01-01\n---\n\n# 6. Better\n\n## Context and Problem Statement\n\nSome context.\n"
-	links := []adr.SupersedesLink{
+	links := []adr.ADRLink{
 		{Number: 1, Filename: "0001-first.md"},
 		{Number: 5, Filename: "0005-fifth.md"},
 	}
@@ -195,7 +195,7 @@ func TestSetSupersedes_MADRFullFrontmatter(t *testing.T) {
 
 func TestSetSupersedes_NoStatusSection_ReturnsError(t *testing.T) {
 	content := "# 2. Better\n\n## Context\n\nSome context.\n"
-	links := []adr.SupersedesLink{{Number: 1, Filename: "0001-old.md"}}
+	links := []adr.ADRLink{{Number: 1, Filename: "0001-old.md"}}
 
 	_, err := adr.SetSupersedes(content, links)
 	assert.Error(t, err)
@@ -203,7 +203,7 @@ func TestSetSupersedes_NoStatusSection_ReturnsError(t *testing.T) {
 
 func TestSetSupersedes_PreservesRestOfContent(t *testing.T) {
 	content := "# 6. Better\n\nDate: 2024-01-01\n\n## Status\n\nProposed\n\n## Context\n\nContext text.\n\n## Decision\n\nDecision text.\n"
-	links := []adr.SupersedesLink{{Number: 1, Filename: "0001-old.md"}}
+	links := []adr.ADRLink{{Number: 1, Filename: "0001-old.md"}}
 
 	result, err := adr.SetSupersedes(content, links)
 	require.NoError(t, err)
@@ -214,7 +214,7 @@ func TestSetSupersedes_PreservesRestOfContent(t *testing.T) {
 
 func TestSetSupersedes_EmptyStatusSection(t *testing.T) {
 	content := "# 2. Better\n\n## Status\n\n## Context\n\nSome context.\n"
-	links := []adr.SupersedesLink{{Number: 1, Filename: "0001-old.md"}}
+	links := []adr.ADRLink{{Number: 1, Filename: "0001-old.md"}}
 
 	result, err := adr.SetSupersedes(content, links)
 	require.NoError(t, err)

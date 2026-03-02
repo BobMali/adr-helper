@@ -13,15 +13,17 @@ vi.mock('../api', async (importOriginal) => {
     fetchStatuses: vi.fn(),
     fetchADRs: vi.fn(),
     updateADRStatus: vi.fn(),
+    addRelation: vi.fn(),
   }
 })
 
-import { fetchADR, fetchStatuses, fetchADRs, updateADRStatus } from '../api'
+import { fetchADR, fetchStatuses, fetchADRs, updateADRStatus, addRelation } from '../api'
 
 const mockedFetchADR = fetchADR as ReturnType<typeof vi.fn>
 const mockedFetchStatuses = fetchStatuses as ReturnType<typeof vi.fn>
 const mockedFetchADRs = fetchADRs as ReturnType<typeof vi.fn>
 const mockedUpdateADRStatus = updateADRStatus as ReturnType<typeof vi.fn>
+const mockedAddRelation = addRelation as ReturnType<typeof vi.fn>
 
 const sampleDetail: ADRDetail = {
   number: 5,
@@ -463,6 +465,161 @@ describe('ADRDetailView', () => {
       expect(wrapper.find('nav').exists()).toBe(true)
       expect(wrapper.find('header').exists()).toBe(true)
       expect(wrapper.find('section').exists()).toBe(true)
+    })
+  })
+
+  describe('relation flow', () => {
+    beforeEach(() => {
+      mockedFetchADR.mockResolvedValue({ ...sampleDetail })
+      mockedFetchStatuses.mockResolvedValue([...sampleStatuses])
+    })
+
+    it('shows "+ Add relation" button on detail view', async () => {
+      const { wrapper } = await mountView()
+      await flushPromises()
+
+      const btn = wrapper.findAll('button').find(b => b.text().includes('Add relation'))
+      expect(btn).toBeTruthy()
+    })
+
+    it('click opens relation input panel', async () => {
+      const { wrapper } = await mountView()
+      await flushPromises()
+
+      const btn = wrapper.findAll('button').find(b => b.text().includes('Add relation'))!
+      await btn.trigger('click')
+      await nextTick()
+
+      expect(wrapper.find('[role="combobox"]').exists()).toBe(true)
+    })
+
+    it('opening relation panel closes supersede panel', async () => {
+      mockedFetchADRs.mockResolvedValue([
+        { number: 3, title: 'Use MySQL', status: 'Accepted', date: '2025-01-01' },
+      ])
+      const { wrapper } = await mountView()
+      await flushPromises()
+
+      // Open supersede panel
+      await wrapper.find('select#status-select').setValue('Superseded')
+      await flushPromises()
+      expect(wrapper.find('[role="group"]').exists()).toBe(true)
+
+      // The button should not be visible while supersede panel is open
+      const btn = wrapper.findAll('button').find(b => b.text().includes('Add relation'))
+      expect(btn).toBeUndefined()
+    })
+
+    it('search + select flow calls addRelation API', async () => {
+      vi.useFakeTimers()
+      const updatedADR = {
+        ...sampleDetail,
+        content: '## Relations\n\nRelates to [ADR-0003](0003-use-chi.md)',
+      }
+      mockedAddRelation.mockResolvedValue(updatedADR)
+      mockedFetchADRs.mockResolvedValue([
+        { number: 3, title: 'Use MySQL', status: 'Accepted', date: '2025-01-01' },
+        { number: 5, title: 'Use PostgreSQL', status: 'Accepted', date: '2025-01-15' },
+      ])
+
+      const { wrapper } = await mountView()
+      await flushPromises()
+
+      // Open relation panel
+      const btn = wrapper.findAll('button').find(b => b.text().includes('Add relation'))!
+      await btn.trigger('click')
+      await nextTick()
+
+      // Simulate search input triggering results (debounced search)
+      const input = wrapper.find('[role="combobox"]')
+      await input.setValue('mysql')
+      // Advance past debounce timer
+      vi.advanceTimersByTime(350)
+      await flushPromises()
+
+      // Click result (only non-self ADR should appear)
+      const options = wrapper.findAll('[role="option"]')
+      const mysqlOption = options.find(o => o.text().includes('Use MySQL'))
+      expect(mysqlOption).toBeTruthy()
+      await mysqlOption!.trigger('click')
+      await flushPromises()
+
+      expect(mockedAddRelation).toHaveBeenCalledWith(5, 3)
+      vi.useRealTimers()
+    })
+
+    it('error shows feedback message', async () => {
+      vi.useFakeTimers()
+      mockedAddRelation.mockRejectedValue(new Error('Relation failed'))
+      mockedFetchADRs.mockResolvedValue([
+        { number: 3, title: 'Use MySQL', status: 'Accepted', date: '2025-01-01' },
+      ])
+
+      const { wrapper } = await mountView()
+      await flushPromises()
+
+      const btn = wrapper.findAll('button').find(b => b.text().includes('Add relation'))!
+      await btn.trigger('click')
+      await nextTick()
+
+      const input = wrapper.find('[role="combobox"]')
+      await input.setValue('mysql')
+      vi.advanceTimersByTime(350)
+      await flushPromises()
+
+      const option = wrapper.find('[role="option"]')
+      await option.trigger('click')
+      await flushPromises()
+
+      expect(wrapper.text()).toContain('Relation failed')
+      vi.useRealTimers()
+    })
+
+    it('cancel closes panel', async () => {
+      const { wrapper } = await mountView()
+      await flushPromises()
+
+      const btn = wrapper.findAll('button').find(b => b.text().includes('Add relation'))!
+      await btn.trigger('click')
+      await nextTick()
+
+      // Press Escape on the input
+      const input = wrapper.find('[role="combobox"]')
+      await input.trigger('keydown', { key: 'Escape' })
+      await nextTick()
+
+      expect(wrapper.find('[role="combobox"]').exists()).toBe(false)
+    })
+
+    it('button disabled while adding is true', async () => {
+      vi.useFakeTimers()
+      let resolveRelation!: (value: any) => void
+      mockedAddRelation.mockReturnValue(new Promise((r) => { resolveRelation = r }))
+      mockedFetchADRs.mockResolvedValue([
+        { number: 3, title: 'Use MySQL', status: 'Accepted', date: '2025-01-01' },
+      ])
+
+      const { wrapper } = await mountView()
+      await flushPromises()
+
+      const btn = wrapper.findAll('button').find(b => b.text().includes('Add relation'))!
+      await btn.trigger('click')
+      await nextTick()
+
+      const input = wrapper.find('[role="combobox"]')
+      await input.setValue('mysql')
+      vi.advanceTimersByTime(350)
+      await flushPromises()
+
+      await wrapper.find('[role="option"]').trigger('click')
+      await nextTick()
+
+      // Input should be disabled while adding
+      expect(wrapper.find('[role="combobox"]').attributes('disabled')).toBeDefined()
+
+      resolveRelation({ ...sampleDetail })
+      await flushPromises()
+      vi.useRealTimers()
     })
   })
 })
