@@ -18,7 +18,7 @@
     "vue-router": "^5.0.3"
   },
   "devDependencies": {
-    "@tailwindcss/vite": "^4.1.18",
+    "@tailwindcss/vite": "^4.3.0",
     "@types/dompurify": "^3.0.5",
     "@types/marked": "^5.0.2",
     "@types/node": "^24.10.1",
@@ -28,8 +28,8 @@
     "happy-dom": "^20.6.1",
     "tailwindcss": "^4.1.18",
     "typescript": "~5.9.3",
-    "vite": "^7.2.4",
-    "vitest": "^4.0.18",
+    "vite": "^8.0.16",
+    "vitest": "^4.1.8",
     "vue-tsc": "^3.1.4"
   }
 }
