@@ -6,11 +6,42 @@ import (
 	"io/fs"
 	"log"
 	"os"
+	"sync"
 
 	"github.com/BobMali/adr-helper/internal/adr"
 	"github.com/BobMali/adr-helper/internal/web"
 	webui "github.com/BobMali/adr-helper/web"
 )
+
+// configScopeStore persists scope-vocabulary additions to .adr.json under a
+// mutex, keeping the in-memory config consistent for concurrent requests.
+type configScopeStore struct {
+	mu  sync.Mutex
+	dir string
+	cfg *adr.Config
+}
+
+func (s *configScopeStore) Scopes() []string {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return append([]string(nil), s.cfg.Scopes...)
+}
+
+func (s *configScopeStore) AddScope(value string) ([]string, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	prev := s.cfg.Scopes
+	scopes, err := s.cfg.AddScope(value)
+	if err != nil {
+		return nil, err
+	}
+	if err := adr.SaveConfig(s.dir, s.cfg); err != nil {
+		s.cfg.Scopes = prev // roll back the in-memory mutation to match disk
+		return nil, err
+	}
+	return scopes, nil
+}
 
 func main() {
 	addr := flag.String("addr", ":8080", "HTTP listen address")
@@ -29,6 +60,7 @@ func main() {
 		opts = append(opts, web.WithRelator(fileRepo))
 		opts = append(opts, web.WithContentUpdater(fileRepo))
 		opts = append(opts, web.WithConfig(cfg))
+		opts = append(opts, web.WithScopeStore(&configScopeStore{dir: ".", cfg: cfg}))
 	}
 	if subFS, err := fs.Sub(webui.DistFS, "dist"); err == nil {
 		if _, err := subFS.Open("index.html"); err == nil {

@@ -112,6 +112,28 @@ export async function updateADRContent(number: number, content: string): Promise
   return res.json()
 }
 
+export async function fetchScopes(): Promise<string[]> {
+  const res = await apiFetch('/api/scopes')
+  if (!res.ok) {
+    throw new Error(`Failed to fetch scopes: ${res.status}`)
+  }
+  return res.json()
+}
+
+export async function addScope(value: string): Promise<string[]> {
+  const res = await apiFetch('/api/scopes', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ value }),
+  })
+  if (!res.ok) {
+    // The server returns a plain-text reason (e.g. commas not allowed) on 400.
+    const reason = (await res.text()).trim()
+    throw new Error(reason || `Failed to add scope: ${res.status}`)
+  }
+  return res.json()
+}
+
 export async function fetchConfig(): Promise<{ template: string }> {
   const res = await apiFetch('/api/config')
   if (!res.ok) {

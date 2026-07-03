@@ -5,6 +5,7 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/BobMali/adr-helper/internal/adr"
@@ -138,4 +139,93 @@ func TestLoadConfig_EmptyDirectory_ReturnsErrConfigInvalid(t *testing.T) {
 	_, err := adr.LoadConfig(dir)
 	assert.Error(t, err)
 	assert.True(t, errors.Is(err, adr.ErrConfigInvalid))
+}
+
+func TestConfig_AddScope_AppendsNewValue(t *testing.T) {
+	cfg := &adr.Config{}
+
+	list, err := cfg.AddScope("Backend")
+	require.NoError(t, err)
+	assert.Equal(t, []string{"Backend"}, list)
+	assert.Equal(t, []string{"Backend"}, cfg.Scopes)
+}
+
+func TestConfig_AddScope_TrimsWhitespace(t *testing.T) {
+	cfg := &adr.Config{}
+
+	list, err := cfg.AddScope("  Frontend  ")
+	require.NoError(t, err)
+	assert.Equal(t, []string{"Frontend"}, list)
+}
+
+func TestConfig_AddScope_DedupsCaseInsensitively(t *testing.T) {
+	cfg := &adr.Config{Scopes: []string{"Backend"}}
+
+	list, err := cfg.AddScope("backend")
+	require.NoError(t, err)
+	assert.Equal(t, []string{"Backend"}, list, "adding an existing scope is a no-op preserving canonical spelling")
+}
+
+func TestConfig_AddScope_ReturnsCopy(t *testing.T) {
+	cfg := &adr.Config{}
+
+	list, err := cfg.AddScope("A")
+	require.NoError(t, err)
+	list[0] = "mutated"
+	assert.Equal(t, []string{"A"}, cfg.Scopes, "returned slice must not alias internal state")
+}
+
+func TestConfig_AddScope_RejectsEmpty(t *testing.T) {
+	cfg := &adr.Config{}
+
+	_, err := cfg.AddScope("   ")
+	assert.ErrorIs(t, err, adr.ErrInvalidScope)
+}
+
+func TestConfig_AddScope_RejectsComma(t *testing.T) {
+	cfg := &adr.Config{}
+
+	_, err := cfg.AddScope("Backend, API")
+	assert.ErrorIs(t, err, adr.ErrInvalidScope)
+}
+
+func TestConfig_AddScope_RejectsNewline(t *testing.T) {
+	cfg := &adr.Config{}
+
+	_, err := cfg.AddScope("Back\nend")
+	assert.ErrorIs(t, err, adr.ErrInvalidScope)
+}
+
+func TestConfig_AddScope_RejectsTooLong(t *testing.T) {
+	cfg := &adr.Config{}
+
+	_, err := cfg.AddScope(strings.Repeat("x", adr.MaxScopeLength+1))
+	assert.ErrorIs(t, err, adr.ErrInvalidScope)
+}
+
+func TestConfig_HasScope_CaseInsensitiveReturnsCanonical(t *testing.T) {
+	cfg := &adr.Config{Scopes: []string{"Backend", "API Gateway"}}
+
+	canonical, ok := cfg.HasScope("api gateway")
+	assert.True(t, ok)
+	assert.Equal(t, "API Gateway", canonical)
+}
+
+func TestConfig_HasScope_NotFound(t *testing.T) {
+	cfg := &adr.Config{Scopes: []string{"Backend"}}
+
+	_, ok := cfg.HasScope("Frontend")
+	assert.False(t, ok)
+}
+
+func TestConfig_SaveLoad_RoundTripsScopes(t *testing.T) {
+	dir := t.TempDir()
+	require.NoError(t, adr.SaveConfig(dir, &adr.Config{
+		Directory: "docs/adr", Template: "nygard-scoped", TemplateFile: "template.md",
+		Scopes: []string{"Backend", "Frontend"},
+	}))
+
+	loaded, err := adr.LoadConfig(dir)
+	require.NoError(t, err)
+	assert.Equal(t, []string{"Backend", "Frontend"}, loaded.Scopes)
 }

@@ -20,6 +20,7 @@ export interface TemplateSectionDef {
   kind: string
   optional: boolean
   placeholder: string
+  vocabulary?: boolean
 }
 
 export type SortField = 'number' | 'title' | 'status'

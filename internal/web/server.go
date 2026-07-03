@@ -37,6 +37,13 @@ type Relator interface {
 	AddRelation(ctx context.Context, sourceNum, targetNum int) (*adr.ADR, error)
 }
 
+// ScopeStore reads and extends the project's scope vocabulary, persisting
+// additions. Implementations must be safe for concurrent use.
+type ScopeStore interface {
+	Scopes() []string
+	AddScope(value string) ([]string, error)
+}
+
 // ServerOption configures optional Server behaviour.
 type ServerOption func(*Server)
 
@@ -83,6 +90,13 @@ func WithConfig(cfg *adr.Config) ServerOption {
 	}
 }
 
+// WithScopeStore enables the scope vocabulary endpoints.
+func WithScopeStore(store ScopeStore) ServerOption {
+	return func(s *Server) {
+		s.scopeStore = store
+	}
+}
+
 // Saver can persist a new ADR record.
 type Saver interface {
 	Save(ctx context.Context, record *adr.ADR) error
@@ -98,6 +112,7 @@ type Server struct {
 	superseder     Superseder
 	relator        Relator
 	contentUpdater ContentUpdater
+	scopeStore     ScopeStore
 	config         *adr.Config
 }
 
@@ -113,6 +128,8 @@ func NewServer(repo adr.Repository, opts ...ServerOption) *Server {
 	r.Get("/health", s.handleHealth)
 	r.Get("/api/config", s.handleGetConfig)
 	r.Get("/api/template-sections", s.handleGetTemplateSections)
+	r.Get("/api/scopes", s.handleGetScopes)
+	r.Post("/api/scopes", s.handleAddScope)
 	r.Get("/api/adr", s.handleListADRs)
 	r.Get("/api/adr/statuses", s.handleStatuses)
 	r.Post("/api/adr", s.handleCreateADR)
@@ -406,6 +423,60 @@ func (s *Server) handleGetTemplateSections(w http.ResponseWriter, r *http.Reques
 	}
 }
 
+func (s *Server) handleGetScopes(w http.ResponseWriter, r *http.Request) {
+	if s.scopeStore == nil {
+		http.Error(w, "scopes not available", http.StatusServiceUnavailable)
+		return
+	}
+
+	scopes := s.scopeStore.Scopes()
+	if scopes == nil {
+		scopes = []string{}
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	if err := json.NewEncoder(w).Encode(scopes); err != nil {
+		http.Error(w, "failed to encode response", http.StatusInternalServerError)
+	}
+}
+
+func (s *Server) handleAddScope(w http.ResponseWriter, r *http.Request) {
+	if s.scopeStore == nil {
+		http.Error(w, "scopes not available", http.StatusServiceUnavailable)
+		return
+	}
+
+	ct := r.Header.Get("Content-Type")
+	if !strings.HasPrefix(ct, "application/json") {
+		http.Error(w, "Content-Type must be application/json", http.StatusBadRequest)
+		return
+	}
+
+	r.Body = http.MaxBytesReader(w, r.Body, 1024)
+	var body struct {
+		Value string `json:"value"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		http.Error(w, "invalid request body", http.StatusBadRequest)
+		return
+	}
+
+	scopes, err := s.scopeStore.AddScope(body.Value)
+	if err != nil {
+		if errors.Is(err, adr.ErrInvalidScope) {
+			http.Error(w, err.Error(), http.StatusBadRequest)
+			return
+		}
+		http.Error(w, "failed to add scope", http.StatusInternalServerError)
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	if err := json.NewEncoder(w).Encode(scopes); err != nil {
+		http.Error(w, "failed to encode response", http.StatusInternalServerError)
+	}
+}
+
 func (s *Server) handleCreateADR(w http.ResponseWriter, r *http.Request) {
 	if s.repo == nil {
 		http.Error(w, "repository not configured", http.StatusServiceUnavailable)
@@ -457,10 +528,18 @@ func (s *Server) handleCreateADR(w http.ResponseWriter, r *http.Request) {
 	if len(body.Sections) > 0 {
 		sectionDefs, _ := adr.TemplateSections(s.config.Template)
 		for _, def := range sectionDefs {
-			if text, ok := body.Sections[def.Key]; ok && strings.TrimSpace(text) != "" {
-				if replaced, found := adr.ReplaceSectionContent(record.Content, def.Heading, text); found {
+			text, ok := body.Sections[def.Key]
+			if !ok || strings.TrimSpace(text) == "" {
+				continue
+			}
+			// "meta" kinds are title-block lines (e.g. Scope); everything else
+			// is a "## Heading" body section.
+			if def.Kind == "meta" {
+				if replaced, found := adr.ReplaceMetaField(record.Content, def.Heading, text); found {
 					record.Content = replaced
 				}
+			} else if replaced, found := adr.ReplaceSectionContent(record.Content, def.Heading, text); found {
+				record.Content = replaced
 			}
 		}
 	}

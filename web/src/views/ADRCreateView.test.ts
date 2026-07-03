@@ -1,23 +1,39 @@
 import { mount, flushPromises } from '@vue/test-utils'
 import { createRouter, createMemoryHistory } from 'vue-router'
 import ADRCreateView from './ADRCreateView.vue'
-import { fetchConfig, createADR, fetchTemplateSections } from '../api'
+import { fetchConfig, createADR, fetchTemplateSections, fetchScopes, addScope } from '../api'
 import type { TemplateSectionDef } from '../types'
 
 vi.mock('../api', () => ({
   fetchConfig: vi.fn(),
   createADR: vi.fn(),
   fetchTemplateSections: vi.fn(),
+  fetchScopes: vi.fn(),
+  addScope: vi.fn(),
 }))
 
 const mockedFetchConfig = fetchConfig as ReturnType<typeof vi.fn>
 const mockedCreateADR = createADR as ReturnType<typeof vi.fn>
 const mockedFetchTemplateSections = fetchTemplateSections as ReturnType<typeof vi.fn>
+const mockedFetchScopes = fetchScopes as ReturnType<typeof vi.fn>
+const mockedAddScope = addScope as ReturnType<typeof vi.fn>
+
+beforeEach(() => {
+  // Sensible defaults so non-scoped tests don't need to wire the vocabulary.
+  mockedFetchScopes.mockResolvedValue([])
+})
 
 const nygardSections: TemplateSectionDef[] = [
   { key: 'context', heading: 'Context', kind: 'h2', optional: false, placeholder: 'What is the issue?' },
   { key: 'decision', heading: 'Decision', kind: 'h2', optional: false, placeholder: 'What is the change?' },
   { key: 'consequences', heading: 'Consequences', kind: 'h2', optional: true, placeholder: 'What becomes easier?' },
+]
+
+const scopedSections: TemplateSectionDef[] = [
+  { key: 'scope', heading: 'Scope', kind: 'meta', optional: false, placeholder: 'Which part(s)?', vocabulary: true },
+  { key: 'context', heading: 'Context', kind: 'h2', optional: false, placeholder: 'What is the issue?' },
+  { key: 'decision', heading: 'Decision', kind: 'h2', optional: false, placeholder: 'What is the change?' },
+  { key: 'consequences', heading: 'Consequences', kind: 'h2', optional: false, placeholder: 'What becomes harder?' },
 ]
 
 function makeRouter() {
@@ -277,3 +293,101 @@ describe('ADRCreateView', () => {
     })
   })
 })
+
+  describe('scope vocabulary (nygard-scoped)', () => {
+    beforeEach(() => {
+      mockedFetchConfig.mockResolvedValue({ template: 'nygard-scoped' })
+      mockedFetchTemplateSections.mockResolvedValue(scopedSections)
+    })
+
+    it('renders a checkbox per vocabulary value', async () => {
+      mockedFetchScopes.mockResolvedValue(['Backend', 'Frontend'])
+      const { wrapper } = await mountView()
+      await flushPromises()
+
+      const boxes = wrapper.findAll('input[type="checkbox"]')
+      expect(boxes).toHaveLength(2)
+      expect(wrapper.text()).toContain('Backend')
+      expect(wrapper.text()).toContain('Frontend')
+      // Scope field is not a textarea
+      expect(wrapper.find('#section-scope').element.tagName).not.toBe('TEXTAREA')
+    })
+
+    it('shows empty-state hint when there are no scopes', async () => {
+      mockedFetchScopes.mockResolvedValue([])
+      const { wrapper } = await mountView()
+      await flushPromises()
+
+      expect(wrapper.text()).toContain('No scopes yet')
+    })
+
+    it('adding a scope calls addScope and selects the new value', async () => {
+      mockedFetchScopes.mockResolvedValue(['Backend'])
+      mockedAddScope.mockResolvedValue(['Backend', 'Frontend'])
+      const { wrapper } = await mountView()
+      await flushPromises()
+
+      await wrapper.find('input[type="text"][aria-label="Add a new scope"]').setValue('Frontend')
+      await wrapper.findAll('button').find((b) => b.text() === 'Add')!.trigger('click')
+      await flushPromises()
+
+      expect(mockedAddScope).toHaveBeenCalledWith('Frontend')
+      const boxes = wrapper.findAll('input[type="checkbox"]')
+      expect(boxes).toHaveLength(2)
+      // Newly added value is auto-checked
+      const frontend = boxes.find((b) => (b.element as HTMLInputElement).value === 'Frontend')!
+      expect((frontend.element as HTMLInputElement).checked).toBe(true)
+    })
+
+    it('surfaces add-scope validation errors', async () => {
+      mockedFetchScopes.mockResolvedValue([])
+      mockedAddScope.mockRejectedValue(new Error('scope "a,b" must not contain commas'))
+      const { wrapper } = await mountView()
+      await flushPromises()
+
+      await wrapper.find('input[type="text"][aria-label="Add a new scope"]').setValue('a,b')
+      await wrapper.findAll('button').find((b) => b.text() === 'Add')!.trigger('click')
+      await flushPromises()
+
+      expect(wrapper.text()).toContain('must not contain commas')
+    })
+
+    it('joins selected scopes into the create payload', async () => {
+      mockedFetchScopes.mockResolvedValue(['Backend', 'Frontend'])
+      mockedCreateADR.mockResolvedValue({ number: 1, title: 'T', status: 'Proposed', date: '2026-03-02', content: '' })
+      const { wrapper } = await mountView()
+      await flushPromises()
+
+      await wrapper.find('#adr-title').setValue('T')
+      const boxes = wrapper.findAll('input[type="checkbox"]')
+      await boxes[0].setValue(true) // Backend
+      await boxes[1].setValue(true) // Frontend
+      await wrapper.find('#section-context').setValue('ctx')
+      await wrapper.find('#section-decision').setValue('dec')
+      await wrapper.find('#section-consequences').setValue('con')
+      await wrapper.find('form').trigger('submit')
+      await flushPromises()
+
+      expect(mockedCreateADR).toHaveBeenCalledWith({
+        title: 'T',
+        sections: { scope: 'Backend, Frontend', context: 'ctx', decision: 'dec', consequences: 'con' },
+      })
+    })
+
+    it('blocks submission when no scope is selected (required)', async () => {
+      mockedFetchScopes.mockResolvedValue(['Backend'])
+      const { wrapper } = await mountView()
+      await flushPromises()
+
+      mockedCreateADR.mockClear() // shared factory mock; reset accumulated calls
+      await wrapper.find('#adr-title').setValue('T')
+      await wrapper.find('#section-context').setValue('ctx')
+      await wrapper.find('#section-decision').setValue('dec')
+      await wrapper.find('#section-consequences').setValue('con')
+      await wrapper.find('form').trigger('submit')
+      await flushPromises()
+
+      expect(mockedCreateADR).not.toHaveBeenCalled()
+      expect(wrapper.text()).toContain('Scope is required')
+    })
+  })

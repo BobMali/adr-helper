@@ -496,3 +496,92 @@ func TestNewCmd_PrintsSuccessMessage(t *testing.T) {
 	assert.Contains(t, buf.String(), "Created")
 	assert.Contains(t, buf.String(), "0001-use-go.md")
 }
+
+// initScopedWorkspace sets up a nygard-scoped project with a scope vocabulary.
+func initScopedWorkspace(t *testing.T, tmpDir string, scopes []string) {
+	t.Helper()
+	dir := "docs/adr"
+	require.NoError(t, os.MkdirAll(filepath.Join(tmpDir, dir), 0o755))
+	content, err := adr.TemplateContent("nygard-scoped")
+	require.NoError(t, err)
+	require.NoError(t, os.WriteFile(filepath.Join(tmpDir, dir, "template.md"), []byte(content), 0o644))
+	cfg := &adr.Config{Directory: dir, Template: "nygard-scoped", TemplateFile: "template.md", Scopes: scopes}
+	require.NoError(t, adr.SaveConfig(tmpDir, cfg))
+}
+
+func TestNewCmd_Scope_RendersCanonicalJoinedLine(t *testing.T) {
+	tmpDir := chdirTemp(t)
+	initScopedWorkspace(t, tmpDir, []string{"Backend", "Frontend"})
+
+	root := cli.NewRootCmd()
+	// lower-case input must normalise to the canonical stored spelling
+	root.SetArgs([]string{"new", "Scoped Decision", "--scope", "backend", "--scope", "Frontend"})
+	require.NoError(t, root.Execute())
+
+	content, err := os.ReadFile(filepath.Join(tmpDir, "docs/adr", "0001-scoped-decision.md"))
+	require.NoError(t, err)
+	assert.Contains(t, string(content), "Scope: Backend, Frontend")
+}
+
+func TestNewCmd_Scope_CommaSeparatedValue(t *testing.T) {
+	tmpDir := chdirTemp(t)
+	initScopedWorkspace(t, tmpDir, []string{"Backend", "API"})
+
+	root := cli.NewRootCmd()
+	root.SetArgs([]string{"new", "Combo", "--scope", "Backend,API"})
+	require.NoError(t, root.Execute())
+
+	content, err := os.ReadFile(filepath.Join(tmpDir, "docs/adr", "0001-combo.md"))
+	require.NoError(t, err)
+	assert.Contains(t, string(content), "Scope: Backend, API")
+}
+
+func TestNewCmd_Scope_UnknownValue_ErrorsWithoutWriting(t *testing.T) {
+	tmpDir := chdirTemp(t)
+	initScopedWorkspace(t, tmpDir, []string{"Backend"})
+
+	root := cli.NewRootCmd()
+	root.SetArgs([]string{"new", "Bad Scope", "--scope", "Nonexistent"})
+	err := root.Execute()
+
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "unknown scope")
+	_, statErr := os.Stat(filepath.Join(tmpDir, "docs/adr", "0001-bad-scope.md"))
+	assert.True(t, os.IsNotExist(statErr), "no ADR file should be written when a scope is invalid")
+}
+
+func TestNewCmd_Scope_NonScopedTemplate_Errors(t *testing.T) {
+	tmpDir := chdirTemp(t)
+	initWorkspace(t, tmpDir, "docs/adr", "nygard") // plain nygard has no Scope: line
+
+	root := cli.NewRootCmd()
+	root.SetArgs([]string{"new", "No Scope Field", "--scope", "Anything"})
+	err := root.Execute()
+
+	require.Error(t, err)
+	// "Anything" isn't in the (empty) vocabulary, so it fails validation first —
+	// which still means no ADR is written.
+	_, statErr := os.Stat(filepath.Join(tmpDir, "docs/adr", "0001-no-scope-field.md"))
+	assert.True(t, os.IsNotExist(statErr))
+}
+
+func TestNewCmd_Scope_ValidValueButTemplateHasNoScopeLine_Errors(t *testing.T) {
+	tmpDir := chdirTemp(t)
+	// Vocabulary has the value, but the on-disk template is plain nygard (no Scope: line).
+	dir := "docs/adr"
+	require.NoError(t, os.MkdirAll(filepath.Join(tmpDir, dir), 0o755))
+	content, err := adr.TemplateContent("nygard")
+	require.NoError(t, err)
+	require.NoError(t, os.WriteFile(filepath.Join(tmpDir, dir, "template.md"), []byte(content), 0o644))
+	cfg := &adr.Config{Directory: dir, Template: "nygard", TemplateFile: "template.md", Scopes: []string{"Backend"}}
+	require.NoError(t, adr.SaveConfig(tmpDir, cfg))
+
+	root := cli.NewRootCmd()
+	root.SetArgs([]string{"new", "Drifted", "--scope", "Backend"})
+	err = root.Execute()
+
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "no Scope field")
+	_, statErr := os.Stat(filepath.Join(tmpDir, dir, "0001-drifted.md"))
+	assert.True(t, os.IsNotExist(statErr))
+}

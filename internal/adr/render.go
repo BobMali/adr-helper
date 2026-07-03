@@ -10,7 +10,29 @@ var (
 	headingPattern   = regexp.MustCompile(`(?m)^# .*$`)
 	dateUpperPattern = regexp.MustCompile(`(?m)^Date:.*$`)
 	dateLowerPattern = regexp.MustCompile(`(?m)^date:.*$`)
+	metaValueNewline = regexp.MustCompile(`[\r\n]+`)
 )
+
+// ReplaceMetaField replaces the value of the first title-block metadata line
+// matching "Label:" (case-insensitive) with "Label: value", emitting the label
+// in the canonical spelling passed by the caller. Any newlines in value are
+// collapsed to single spaces to preserve the single-line invariant of a
+// title-block field. Returns (result, found); found is false when no matching
+// line exists (e.g. a template without that field).
+func ReplaceMetaField(content, label, value string) (string, bool) {
+	sanitized := strings.TrimSpace(metaValueNewline.ReplaceAllString(value, " "))
+	pattern := regexp.MustCompile(`(?mi)^` + regexp.QuoteMeta(label) + `:.*$`)
+
+	found := false
+	result := pattern.ReplaceAllStringFunc(content, func(match string) string {
+		if found {
+			return match
+		}
+		found = true
+		return label + ": " + sanitized
+	})
+	return result, found
+}
 
 // ReplaceSectionContent replaces the body text under the first matching
 // heading (## or ###) with newBody. Returns (result, found).

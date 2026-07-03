@@ -140,3 +140,52 @@ func TestRenderTemplate_PreservesBody(t *testing.T) {
 	assert.Contains(t, result, "## Decision")
 	assert.Contains(t, result, "## Consequences")
 }
+
+func TestReplaceMetaField_ReplacesScopeLine(t *testing.T) {
+	content := "# 1. Title\n\nDate: 2024-01-15\n\nScope:\n\n## Status\n"
+
+	result, found := adr.ReplaceMetaField(content, "Scope", "Backend, API")
+
+	assert.True(t, found)
+	assert.Contains(t, result, "Scope: Backend, API")
+	assert.Contains(t, result, "Date: 2024-01-15", "other lines untouched")
+}
+
+func TestReplaceMetaField_CaseInsensitiveMatchCanonicalOutput(t *testing.T) {
+	content := "# 1. Title\n\nscope: old\n"
+
+	result, found := adr.ReplaceMetaField(content, "Scope", "Backend")
+
+	assert.True(t, found)
+	assert.Contains(t, result, "Scope: Backend", "emits the canonical label spelling")
+	assert.NotContains(t, result, "scope: old")
+}
+
+func TestReplaceMetaField_ReplacesFirstOccurrenceOnly(t *testing.T) {
+	content := "Scope:\n\n## Body\n\nScope: mentioned in prose\n"
+
+	result, found := adr.ReplaceMetaField(content, "Scope", "Backend")
+
+	assert.True(t, found)
+	assert.Contains(t, result, "Scope: Backend")
+	assert.Contains(t, result, "Scope: mentioned in prose", "later occurrences are left alone")
+}
+
+func TestReplaceMetaField_SanitizesNewlinesInValue(t *testing.T) {
+	content := "Scope:\n\n## Status\n"
+
+	result, found := adr.ReplaceMetaField(content, "Scope", "Back\nend")
+
+	assert.True(t, found)
+	assert.Contains(t, result, "Scope: Back end")
+	assert.NotContains(t, result, "Scope: Back\nend")
+}
+
+func TestReplaceMetaField_NotFound(t *testing.T) {
+	content := "# 1. Title\n\nDate: 2024-01-15\n\n## Status\n"
+
+	result, found := adr.ReplaceMetaField(content, "Scope", "Backend")
+
+	assert.False(t, found)
+	assert.Equal(t, content, result)
+}

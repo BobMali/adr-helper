@@ -5,6 +5,7 @@ import (
 	"os"
 	"path/filepath"
 	"sort"
+	"strings"
 
 	"github.com/BobMali/adr-helper/internal/adr"
 	"github.com/spf13/cobra"
@@ -13,6 +14,7 @@ import (
 // NewNewCmd creates the new subcommand for creating a new ADR.
 func NewNewCmd() *cobra.Command {
 	var supersedes []int
+	var scopes []string
 
 	cmd := &cobra.Command{
 		Use:   "new <title>",
@@ -48,6 +50,20 @@ func NewNewCmd() *cobra.Command {
 
 			record := adr.New(number, title)
 			rendered := adr.RenderTemplate(string(templateContent), record)
+
+			// Apply scope values (strict: every value must be in the project
+			// vocabulary; validate before any files are written).
+			if len(scopes) > 0 {
+				canonical, err := resolveScopes(cfg, scopes)
+				if err != nil {
+					return err
+				}
+				replaced, found := adr.ReplaceMetaField(rendered, "Scope", strings.Join(canonical, ", "))
+				if !found {
+					return fmt.Errorf("template %q has no Scope field; cannot apply --scope", cfg.TemplateFile)
+				}
+				rendered = replaced
+			}
 
 			if len(supersedes) > 0 {
 				// Validate and deduplicate IDs
@@ -121,7 +137,39 @@ func NewNewCmd() *cobra.Command {
 
 	cmd.Flags().IntSliceVarP(&supersedes, "supersedes", "s", nil,
 		"ID of ADR(s) that this new ADR supersedes")
+	cmd.Flags().StringSliceVar(&scopes, "scope", nil,
+		"scope value(s) from the project vocabulary (repeatable or comma-separated; requires the nygard-scoped template)")
 	return cmd
+}
+
+// resolveScopes validates the given scope values against the project vocabulary,
+// returning them in canonical spelling and order, deduplicated. Empty entries
+// (e.g. from a trailing comma) are ignored. Any value not in the vocabulary is a
+// hard error listing the valid scopes.
+func resolveScopes(cfg *adr.Config, values []string) ([]string, error) {
+	var canonical []string
+	var invalid []string
+	seen := make(map[string]bool)
+
+	for _, v := range values {
+		if strings.TrimSpace(v) == "" {
+			continue
+		}
+		name, ok := cfg.HasScope(v)
+		if !ok {
+			invalid = append(invalid, v)
+			continue
+		}
+		if !seen[name] {
+			seen[name] = true
+			canonical = append(canonical, name)
+		}
+	}
+
+	if len(invalid) > 0 {
+		return nil, fmt.Errorf("unknown scope(s) %v; valid scopes are %v", invalid, cfg.Scopes)
+	}
+	return canonical, nil
 }
 
 // deduplicateIDs validates and deduplicates a slice of ADR IDs.

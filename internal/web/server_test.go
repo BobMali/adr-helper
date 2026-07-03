@@ -1086,3 +1086,120 @@ func trimNewline(s string) string {
 	}
 	return s
 }
+
+// --- scope vocabulary ---
+
+var _ web.ScopeStore = (*mockScopeStore)(nil)
+
+type mockScopeStore struct {
+	scopes   []string
+	added    string
+	addErr   error
+	addCalls int
+}
+
+func (m *mockScopeStore) Scopes() []string { return m.scopes }
+func (m *mockScopeStore) AddScope(value string) ([]string, error) {
+	m.addCalls++
+	m.added = value
+	if m.addErr != nil {
+		return nil, m.addErr
+	}
+	m.scopes = append(m.scopes, value)
+	return m.scopes, nil
+}
+
+func TestGetScopes_ReturnsList(t *testing.T) {
+	store := &mockScopeStore{scopes: []string{"Backend", "Frontend"}}
+	srv := web.NewServer(nil, web.WithScopeStore(store))
+
+	req := httptest.NewRequest(http.MethodGet, "/api/scopes", nil)
+	rec := httptest.NewRecorder()
+	srv.Handler().ServeHTTP(rec, req)
+
+	assert.Equal(t, http.StatusOK, rec.Code)
+	var scopes []string
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &scopes))
+	assert.Equal(t, []string{"Backend", "Frontend"}, scopes)
+}
+
+func TestGetScopes_EmptyReturnsJSONArray(t *testing.T) {
+	srv := web.NewServer(nil, web.WithScopeStore(&mockScopeStore{}))
+
+	req := httptest.NewRequest(http.MethodGet, "/api/scopes", nil)
+	rec := httptest.NewRecorder()
+	srv.Handler().ServeHTTP(rec, req)
+
+	assert.Equal(t, http.StatusOK, rec.Code)
+	assert.Equal(t, "[]", strings.TrimSpace(rec.Body.String()))
+}
+
+func TestGetScopes_NoStore_ServiceUnavailable(t *testing.T) {
+	srv := web.NewServer(nil)
+
+	req := httptest.NewRequest(http.MethodGet, "/api/scopes", nil)
+	rec := httptest.NewRecorder()
+	srv.Handler().ServeHTTP(rec, req)
+
+	assert.Equal(t, http.StatusServiceUnavailable, rec.Code)
+}
+
+func TestAddScope_PersistsAndReturnsUpdatedList(t *testing.T) {
+	store := &mockScopeStore{scopes: []string{"Backend"}}
+	srv := web.NewServer(nil, web.WithScopeStore(store))
+
+	body := strings.NewReader(`{"value":"Frontend"}`)
+	req := httptest.NewRequest(http.MethodPost, "/api/scopes", body)
+	req.Header.Set("Content-Type", "application/json")
+	rec := httptest.NewRecorder()
+	srv.Handler().ServeHTTP(rec, req)
+
+	assert.Equal(t, http.StatusOK, rec.Code)
+	assert.Equal(t, 1, store.addCalls)
+	assert.Equal(t, "Frontend", store.added)
+	var scopes []string
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &scopes))
+	assert.Equal(t, []string{"Backend", "Frontend"}, scopes)
+}
+
+func TestAddScope_InvalidValue_BadRequest(t *testing.T) {
+	store := &mockScopeStore{addErr: fmt.Errorf("bad: %w", adr.ErrInvalidScope)}
+	srv := web.NewServer(nil, web.WithScopeStore(store))
+
+	body := strings.NewReader(`{"value":"Backend, API"}`)
+	req := httptest.NewRequest(http.MethodPost, "/api/scopes", body)
+	req.Header.Set("Content-Type", "application/json")
+	rec := httptest.NewRecorder()
+	srv.Handler().ServeHTTP(rec, req)
+
+	assert.Equal(t, http.StatusBadRequest, rec.Code)
+}
+
+func TestAddScope_NoStore_ServiceUnavailable(t *testing.T) {
+	srv := web.NewServer(nil)
+
+	body := strings.NewReader(`{"value":"Frontend"}`)
+	req := httptest.NewRequest(http.MethodPost, "/api/scopes", body)
+	req.Header.Set("Content-Type", "application/json")
+	rec := httptest.NewRecorder()
+	srv.Handler().ServeHTTP(rec, req)
+
+	assert.Equal(t, http.StatusServiceUnavailable, rec.Code)
+}
+
+func TestCreateADR_ScopedTemplate_RendersScopeLine(t *testing.T) {
+	repo := &mockRepo{nextNum: 5}
+	cfg := &adr.Config{Version: "1", Directory: "docs/adr", Template: "nygard-scoped"}
+	srv := web.NewServer(repo, web.WithConfig(cfg))
+
+	body := strings.NewReader(`{"title":"Use PostgreSQL","sections":{"scope":"Backend, API","context":"ctx","decision":"dec","consequences":"con"}}`)
+	req := httptest.NewRequest(http.MethodPost, "/api/adr", body)
+	req.Header.Set("Content-Type", "application/json")
+	rec := httptest.NewRecorder()
+	srv.Handler().ServeHTTP(rec, req)
+
+	assert.Equal(t, http.StatusCreated, rec.Code)
+	require.NotNil(t, repo.savedADR)
+	assert.Contains(t, repo.savedADR.Content, "Scope: Backend, API")
+	assert.Contains(t, repo.savedADR.Content, "ctx")
+}

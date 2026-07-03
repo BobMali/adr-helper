@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { ref, onMounted, nextTick } from 'vue'
 import { RouterLink, useRouter } from 'vue-router'
-import { fetchConfig, fetchTemplateSections } from '../api'
+import { fetchConfig, fetchTemplateSections, fetchScopes, addScope } from '../api'
 import { useCreateADR } from '../composables/useCreateADR'
 import type { TemplateSectionDef } from '../types'
 
@@ -14,14 +14,28 @@ const configLoading = ref(true)
 const configError = ref('')
 const titleInputRef = ref<HTMLInputElement | null>(null)
 
+// Scope vocabulary state (used by fields with def.vocabulary).
+const scopeOptions = ref<string[]>([])
+const scopeSelection = ref<Record<string, string[]>>({})
+const newScope = ref('')
+const scopeAddError = ref('')
+const addingScope = ref(false)
+
+async function loadForm() {
+  const [config, templateSections, scopes] = await Promise.all([
+    fetchConfig(),
+    fetchTemplateSections(),
+    // A scopes failure must not break the form; treat as empty vocabulary.
+    fetchScopes().catch(() => [] as string[]),
+  ])
+  templateName.value = config.template
+  sectionDefs.value = templateSections
+  scopeOptions.value = scopes
+}
+
 onMounted(async () => {
   try {
-    const [config, templateSections] = await Promise.all([
-      fetchConfig(),
-      fetchTemplateSections(),
-    ])
-    templateName.value = config.template
-    sectionDefs.value = templateSections
+    await loadForm()
   } catch (e) {
     configError.value = e instanceof Error ? e.message : 'Failed to load config'
   } finally {
@@ -30,6 +44,34 @@ onMounted(async () => {
     titleInputRef.value?.focus()
   }
 })
+
+function toggleScope(key: string, value: string, checked: boolean) {
+  const current = scopeSelection.value[key] ?? []
+  const next = checked ? [...current, value] : current.filter((v) => v !== value)
+  scopeSelection.value[key] = next
+  sections.value[key] = next.join(', ')
+}
+
+async function handleAddScope(key: string) {
+  const value = newScope.value.trim()
+  if (!value) return
+  scopeAddError.value = ''
+  addingScope.value = true
+  try {
+    const updated = await addScope(value)
+    scopeOptions.value = updated
+    // Select the newly added value using the server's canonical spelling.
+    const canonical = updated.find((s) => s.toLowerCase() === value.toLowerCase()) ?? value
+    if (!(scopeSelection.value[key] ?? []).includes(canonical)) {
+      toggleScope(key, canonical, true)
+    }
+    newScope.value = ''
+  } catch (e) {
+    scopeAddError.value = e instanceof Error ? e.message : 'Failed to add scope'
+  } finally {
+    addingScope.value = false
+  }
+}
 
 async function handleSubmit() {
   const result = await submit(sectionDefs.value)
@@ -53,11 +95,7 @@ async function handleSubmit() {
 function retryLoad() {
   configError.value = ''
   configLoading.value = true
-  Promise.all([fetchConfig(), fetchTemplateSections()])
-    .then(([config, templateSections]) => {
-      templateName.value = config.template
-      sectionDefs.value = templateSections
-    })
+  loadForm()
     .catch((e) => {
       configError.value = e instanceof Error ? e.message : 'Failed to load config'
     })
@@ -151,7 +189,65 @@ function retryLoad() {
         >
           {{ def.placeholder }}
         </p>
+
+        <!-- Vocabulary field: checkbox group of selectable values + inline add -->
+        <div
+          v-if="def.vocabulary"
+          :id="`section-${def.key}`"
+          tabindex="-1"
+          :aria-describedby="`section-help-${def.key}`"
+          class="focus:outline-none"
+        >
+          <p v-if="scopeOptions.length === 0" class="text-sm text-gray-500 dark:text-gray-400 mb-2">
+            No scopes yet &mdash; add one below.
+          </p>
+          <div v-else class="flex flex-wrap gap-x-4 gap-y-2 mb-3">
+            <label
+              v-for="opt in scopeOptions"
+              :key="opt"
+              class="inline-flex items-center gap-2 text-sm text-gray-700 dark:text-gray-300"
+            >
+              <input
+                type="checkbox"
+                :value="opt"
+                :checked="(scopeSelection[def.key] ?? []).includes(opt)"
+                :disabled="submitting"
+                class="rounded border-gray-300 dark:border-gray-700 text-blue-600 focus:ring-blue-500"
+                @change="toggleScope(def.key, opt, ($event.target as HTMLInputElement).checked)"
+              />
+              {{ opt }}
+            </label>
+          </div>
+          <div class="flex items-center gap-2">
+            <input
+              v-model="newScope"
+              type="text"
+              :disabled="addingScope || submitting"
+              :aria-label="`Add a new ${def.heading.toLowerCase()}`"
+              placeholder="Add a new scope&hellip;"
+              class="flex-1 py-2 px-3 rounded-lg border border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-900 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 disabled:opacity-50"
+              @keydown.enter.prevent="handleAddScope(def.key)"
+            />
+            <button
+              type="button"
+              :disabled="addingScope || submitting || !newScope.trim()"
+              class="px-3 py-2 text-sm rounded-lg border border-gray-300 dark:border-gray-700 text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-800 disabled:opacity-50 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-blue-500"
+              @click="handleAddScope(def.key)"
+            >
+              Add
+            </button>
+          </div>
+          <p
+            v-if="scopeAddError"
+            role="alert"
+            class="mt-1 text-sm text-red-600 dark:text-red-400"
+          >
+            {{ scopeAddError }}
+          </p>
+        </div>
+
         <textarea
+          v-else
           :id="`section-${def.key}`"
           v-model="sections[def.key]"
           :aria-required="!def.optional || undefined"

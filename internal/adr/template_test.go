@@ -105,7 +105,36 @@ func TestTemplateSections_InvalidTemplate(t *testing.T) {
 func TestValidTemplateNames(t *testing.T) {
 	names := adr.ValidTemplateNames()
 	assert.Contains(t, names, "nygard")
+	assert.Contains(t, names, "nygard-scoped")
 	assert.Contains(t, names, "madr-minimal")
 	assert.Contains(t, names, "madr-full")
-	assert.Len(t, names, 3)
+	assert.Len(t, names, 4)
+}
+
+func TestTemplateContent_NygardScoped_HasScopeLine(t *testing.T) {
+	content, err := adr.TemplateContent("nygard-scoped")
+	require.NoError(t, err)
+	assert.Contains(t, content, "Scope:")
+	assert.Contains(t, content, "## Decision")
+}
+
+func TestValidTemplateNames_IncludesNygardScoped(t *testing.T) {
+	assert.Contains(t, adr.ValidTemplateNames(), "nygard-scoped")
+}
+
+func TestTemplateSections_NygardScoped_ScopeFirstAndVocabulary(t *testing.T) {
+	sections, err := adr.TemplateSections("nygard-scoped")
+	require.NoError(t, err)
+	require.Len(t, sections, 4)
+
+	scope := sections[0]
+	assert.Equal(t, "scope", scope.Key)
+	assert.Equal(t, "Scope", scope.Heading)
+	assert.Equal(t, "meta", scope.Kind)
+	assert.False(t, scope.Optional, "scope is required in the form")
+	assert.True(t, scope.Vocabulary)
+
+	assert.Equal(t, "context", sections[1].Key)
+	assert.Equal(t, "decision", sections[2].Key)
+	assert.Equal(t, "consequences", sections[3].Key)
 }

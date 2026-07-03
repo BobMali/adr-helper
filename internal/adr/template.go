@@ -9,31 +9,42 @@ import (
 type TemplateName string
 
 const (
-	TemplateNygard      TemplateName = "nygard"
-	TemplateMADRMinimal TemplateName = "madr-minimal"
-	TemplateMADRFull    TemplateName = "madr-full"
+	TemplateNygard       TemplateName = "nygard"
+	TemplateNygardScoped TemplateName = "nygard-scoped"
+	TemplateMADRMinimal  TemplateName = "madr-minimal"
+	TemplateMADRFull     TemplateName = "madr-full"
 )
 
 //go:embed templates/*.md
 var templateFS embed.FS
 
 var templateFiles = map[TemplateName]string{
-	TemplateNygard:      "templates/nygard.md",
-	TemplateMADRMinimal: "templates/madr-minimal.md",
-	TemplateMADRFull:    "templates/madr-full.md",
+	TemplateNygard:       "templates/nygard.md",
+	TemplateNygardScoped: "templates/nygard-scoped.md",
+	TemplateMADRMinimal:  "templates/madr-minimal.md",
+	TemplateMADRFull:     "templates/madr-full.md",
 }
 
 // TemplateSectionDef describes a user-editable section within an ADR template.
 type TemplateSectionDef struct {
 	Key         string `json:"key"`
 	Heading     string `json:"heading"`
-	Kind        string `json:"kind"` // "h2" or "h3"
+	Kind        string `json:"kind"` // "h2", "h3", or "meta" (title-block line)
 	Optional    bool   `json:"optional"`
 	Placeholder string `json:"placeholder"`
+	// Vocabulary indicates the field is filled from a project-managed list of
+	// selectable values (Config.Scopes) rather than free text.
+	Vocabulary bool `json:"vocabulary,omitempty"`
 }
 
 var templateSections = map[TemplateName][]TemplateSectionDef{
 	TemplateNygard: {
+		{Key: "context", Heading: "Context", Kind: "h2", Optional: false, Placeholder: "What is the issue that we're seeing that is motivating this decision or change?"},
+		{Key: "decision", Heading: "Decision", Kind: "h2", Optional: false, Placeholder: "What is the change that we're proposing and/or doing?"},
+		{Key: "consequences", Heading: "Consequences", Kind: "h2", Optional: false, Placeholder: "What becomes easier or more difficult to do because of this change?"},
+	},
+	TemplateNygardScoped: {
+		{Key: "scope", Heading: "Scope", Kind: "meta", Optional: false, Vocabulary: true, Placeholder: "Which part(s) of the system this decision applies to"},
 		{Key: "context", Heading: "Context", Kind: "h2", Optional: false, Placeholder: "What is the issue that we're seeing that is motivating this decision or change?"},
 		{Key: "decision", Heading: "Decision", Kind: "h2", Optional: false, Placeholder: "What is the change that we're proposing and/or doing?"},
 		{Key: "consequences", Heading: "Consequences", Kind: "h2", Optional: false, Placeholder: "What becomes easier or more difficult to do because of this change?"},
@@ -88,6 +99,7 @@ func TemplateContent(name string) (string, error) {
 func ValidTemplateNames() []string {
 	return []string{
 		string(TemplateNygard),
+		string(TemplateNygardScoped),
 		string(TemplateMADRMinimal),
 		string(TemplateMADRFull),
 	}
