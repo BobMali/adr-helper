@@ -1,4 +1,4 @@
-import { fetchADRs, fetchADR, fetchStatuses, updateADRStatus, fetchConfig, createADR, NotFoundError, ConflictError } from './api'
+import { fetchADRs, fetchADR, fetchStatuses, updateADRStatus, fetchConfig, createADR, fetchTemplateSections, updateADRContent, NotFoundError, ConflictError } from './api'
 
 function mockFetchOk(body: unknown, status = 200) {
   vi.stubGlobal(
@@ -238,6 +238,52 @@ describe('fetchConfig', () => {
     vi.stubGlobal('fetch', vi.fn().mockRejectedValue(new TypeError('Failed to fetch')))
 
     await expect(fetchConfig()).rejects.toThrow('Network error: unable to reach server')
+  })
+})
+
+describe('fetchTemplateSections', () => {
+  it('GETs /api/template-sections and returns array', async () => {
+    const data = [{ key: 'context', heading: 'Context', kind: 'h2', optional: false, placeholder: 'Some text' }]
+    mockFetchOk(data)
+
+    const result = await fetchTemplateSections()
+
+    expect(fetch).toHaveBeenCalledWith('/api/template-sections')
+    expect(result).toEqual(data)
+  })
+
+  it('throws on non-ok response', async () => {
+    mockFetchFail(503)
+
+    await expect(fetchTemplateSections()).rejects.toThrow('Failed to fetch template sections: 503')
+  })
+})
+
+describe('updateADRContent', () => {
+  it('PUTs content to /api/adr/{number} and returns ADRDetail', async () => {
+    const data = { number: 1, title: 'Use Go', status: 'Proposed', date: '2026-03-02', content: '# 1. Use Go' }
+    mockFetchOk(data)
+
+    const result = await updateADRContent(1, '# 1. Use Go')
+
+    expect(fetch).toHaveBeenCalledWith('/api/adr/1', {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ content: '# 1. Use Go' }),
+    })
+    expect(result).toEqual(data)
+  })
+
+  it('throws NotFoundError on 404', async () => {
+    mockFetchFail(404)
+
+    await expect(updateADRContent(99, '# 99. Missing')).rejects.toThrow(NotFoundError)
+  })
+
+  it('throws generic Error on other failures', async () => {
+    mockFetchFail(500)
+
+    await expect(updateADRContent(1, '# 1. Test')).rejects.toThrow('Failed to update content: 500')
   })
 })
 

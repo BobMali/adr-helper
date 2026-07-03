@@ -221,6 +221,29 @@ func (r *FileRepository) AddRelation(_ context.Context, sourceNum, targetNum int
 	return &record, nil
 }
 
+// UpdateContent replaces the full markdown content of the ADR with the given number.
+// This is a concrete method on FileRepository only — not part of the Repository interface.
+func (r *FileRepository) UpdateContent(_ context.Context, number int, content string) (*ADR, error) {
+	filename, err := FindADRFile(r.dir, number)
+	if err != nil {
+		return nil, err
+	}
+
+	filePath := filepath.Join(r.dir, filename)
+	if err := os.WriteFile(filePath, []byte(content), 0o644); err != nil {
+		return nil, fmt.Errorf("writing %q: %w", filename, err)
+	}
+
+	meta := ExtractMetadata(content)
+	record, err := MetadataToADR(meta, number)
+	if err != nil {
+		return nil, err
+	}
+
+	record.Content = content
+	return &record, nil
+}
+
 // UpdateStatus changes the status of the ADR with the given number and returns the updated record.
 func (r *FileRepository) UpdateStatus(_ context.Context, number int, newStatus string) (*ADR, error) {
 	if _, ok := ParseStatus(newStatus); !ok {

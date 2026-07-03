@@ -41,6 +41,67 @@ func TestTemplateContent_InvalidName(t *testing.T) {
 	assert.Error(t, err)
 }
 
+// --- TemplateSections ---
+
+func TestTemplateSections_NygardHas3Sections(t *testing.T) {
+	sections, err := adr.TemplateSections("nygard")
+	require.NoError(t, err)
+	assert.Len(t, sections, 3)
+}
+
+func TestTemplateSections_MADRMinimalHas4Sections(t *testing.T) {
+	sections, err := adr.TemplateSections("madr-minimal")
+	require.NoError(t, err)
+	assert.Len(t, sections, 4)
+}
+
+func TestTemplateSections_MADRFullHas8Sections(t *testing.T) {
+	sections, err := adr.TemplateSections("madr-full")
+	require.NoError(t, err)
+	assert.Len(t, sections, 8)
+}
+
+func TestTemplateSections_NoStatusSection(t *testing.T) {
+	for _, name := range adr.ValidTemplateNames() {
+		sections, err := adr.TemplateSections(name)
+		require.NoError(t, err)
+		for _, s := range sections {
+			assert.NotEqual(t, "status", s.Key, "template %s should not have a Status section", name)
+			assert.NotEqual(t, "Status", s.Heading, "template %s should not have a Status heading", name)
+		}
+	}
+}
+
+func TestTemplateSections_UniqueKeys(t *testing.T) {
+	for _, name := range adr.ValidTemplateNames() {
+		sections, err := adr.TemplateSections(name)
+		require.NoError(t, err)
+		seen := make(map[string]bool)
+		for _, s := range sections {
+			assert.False(t, seen[s.Key], "duplicate key %q in template %s", s.Key, name)
+			seen[s.Key] = true
+		}
+	}
+}
+
+func TestTemplateSections_AllHaveNonEmptyFields(t *testing.T) {
+	for _, name := range adr.ValidTemplateNames() {
+		sections, err := adr.TemplateSections(name)
+		require.NoError(t, err)
+		for _, s := range sections {
+			assert.NotEmpty(t, s.Key)
+			assert.NotEmpty(t, s.Heading)
+			assert.NotEmpty(t, s.Kind)
+			assert.NotEmpty(t, s.Placeholder)
+		}
+	}
+}
+
+func TestTemplateSections_InvalidTemplate(t *testing.T) {
+	_, err := adr.TemplateSections("invalid")
+	assert.Error(t, err)
+}
+
 func TestValidTemplateNames(t *testing.T) {
 	names := adr.ValidTemplateNames()
 	assert.Contains(t, names, "nygard")

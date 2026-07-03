@@ -27,6 +27,11 @@ type Superseder interface {
 	Supersede(ctx context.Context, supersededNum, supersedingNum int) (*adr.ADR, error)
 }
 
+// ContentUpdater can replace the full markdown content of an ADR.
+type ContentUpdater interface {
+	UpdateContent(ctx context.Context, number int, content string) (*adr.ADR, error)
+}
+
 // Relator adds bidirectional relation links between two ADRs.
 type Relator interface {
 	AddRelation(ctx context.Context, sourceNum, targetNum int) (*adr.ADR, error)
@@ -64,6 +69,13 @@ func WithRelator(rel Relator) ServerOption {
 	}
 }
 
+// WithContentUpdater enables the PUT content endpoint.
+func WithContentUpdater(u ContentUpdater) ServerOption {
+	return func(s *Server) {
+		s.contentUpdater = u
+	}
+}
+
 // WithConfig provides the project configuration for template rendering.
 func WithConfig(cfg *adr.Config) ServerOption {
 	return func(s *Server) {
@@ -79,13 +91,14 @@ type Saver interface {
 
 // Server holds the web server's dependencies and router.
 type Server struct {
-	router     chi.Router
-	repo       adr.Repository
-	frontend   fs.FS
-	updater    StatusUpdater
-	superseder Superseder
-	relator    Relator
-	config     *adr.Config
+	router         chi.Router
+	repo           adr.Repository
+	frontend       fs.FS
+	updater        StatusUpdater
+	superseder     Superseder
+	relator        Relator
+	contentUpdater ContentUpdater
+	config         *adr.Config
 }
 
 // NewServer creates a new Server with routes configured.
@@ -99,10 +112,12 @@ func NewServer(repo adr.Repository, opts ...ServerOption) *Server {
 
 	r.Get("/health", s.handleHealth)
 	r.Get("/api/config", s.handleGetConfig)
+	r.Get("/api/template-sections", s.handleGetTemplateSections)
 	r.Get("/api/adr", s.handleListADRs)
 	r.Get("/api/adr/statuses", s.handleStatuses)
 	r.Post("/api/adr", s.handleCreateADR)
 	r.Get("/api/adr/{number}", s.handleGetADR)
+	r.Put("/api/adr/{number}", s.handleUpdateContent)
 	r.Patch("/api/adr/{number}/status", s.handleUpdateStatus)
 	r.Post("/api/adr/{number}/relations", s.handleAddRelation)
 
@@ -373,6 +388,24 @@ func (s *Server) handleGetConfig(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
+func (s *Server) handleGetTemplateSections(w http.ResponseWriter, r *http.Request) {
+	if s.config == nil {
+		http.Error(w, "config not available", http.StatusServiceUnavailable)
+		return
+	}
+
+	sections, err := adr.TemplateSections(s.config.Template)
+	if err != nil {
+		http.Error(w, "failed to load template sections", http.StatusInternalServerError)
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	if err := json.NewEncoder(w).Encode(sections); err != nil {
+		http.Error(w, "failed to encode response", http.StatusInternalServerError)
+	}
+}
+
 func (s *Server) handleCreateADR(w http.ResponseWriter, r *http.Request) {
 	if s.repo == nil {
 		http.Error(w, "repository not configured", http.StatusServiceUnavailable)
@@ -389,9 +422,10 @@ func (s *Server) handleCreateADR(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	r.Body = http.MaxBytesReader(w, r.Body, 1024)
+	r.Body = http.MaxBytesReader(w, r.Body, 65536)
 	var body struct {
-		Title string `json:"title"`
+		Title    string            `json:"title"`
+		Sections map[string]string `json:"sections,omitempty"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
 		http.Error(w, "invalid request body", http.StatusBadRequest)
@@ -419,6 +453,18 @@ func (s *Server) handleCreateADR(w http.ResponseWriter, r *http.Request) {
 	record := adr.New(nextNum, title)
 	record.Content = adr.RenderTemplate(templateContent, record)
 
+	// Replace section content with user-provided values
+	if len(body.Sections) > 0 {
+		sectionDefs, _ := adr.TemplateSections(s.config.Template)
+		for _, def := range sectionDefs {
+			if text, ok := body.Sections[def.Key]; ok && strings.TrimSpace(text) != "" {
+				if replaced, found := adr.ReplaceSectionContent(record.Content, def.Heading, text); found {
+					record.Content = replaced
+				}
+			}
+		}
+	}
+
 	if err := s.repo.Save(r.Context(), record); err != nil {
 		if errors.Is(err, adr.ErrConflict) {
 			http.Error(w, "ADR already exists", http.StatusConflict)
@@ -433,6 +479,62 @@ func (s *Server) handleCreateADR(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusCreated)
 	if err := json.NewEncoder(w).Encode(toDetailResponse(*record)); err != nil {
 		log.Printf("error encoding create response: %v", err)
+	}
+}
+
+func (s *Server) handleUpdateContent(w http.ResponseWriter, r *http.Request) {
+	if s.contentUpdater == nil {
+		http.Error(w, "content updates not supported", http.StatusNotImplemented)
+		return
+	}
+
+	numberStr := chi.URLParam(r, "number")
+	number, err := strconv.Atoi(numberStr)
+	if err != nil || number <= 0 {
+		http.Error(w, "invalid ADR number", http.StatusBadRequest)
+		return
+	}
+
+	ct := r.Header.Get("Content-Type")
+	if !strings.HasPrefix(ct, "application/json") {
+		http.Error(w, "Content-Type must be application/json", http.StatusBadRequest)
+		return
+	}
+
+	r.Body = http.MaxBytesReader(w, r.Body, 65536)
+	var body struct {
+		Content string `json:"content"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		http.Error(w, "invalid request body", http.StatusBadRequest)
+		return
+	}
+
+	if strings.TrimSpace(body.Content) == "" {
+		http.Error(w, "content is required", http.StatusBadRequest)
+		return
+	}
+
+	// Validate heading number matches URL number
+	meta := adr.ExtractMetadata(body.Content)
+	if meta.Number > 0 && meta.Number != number {
+		http.Error(w, "heading number does not match URL", http.StatusBadRequest)
+		return
+	}
+
+	record, err := s.contentUpdater.UpdateContent(r.Context(), number, body.Content)
+	if err != nil {
+		if errors.Is(err, adr.ErrNotFound) {
+			http.Error(w, "ADR not found", http.StatusNotFound)
+			return
+		}
+		http.Error(w, "failed to update content", http.StatusInternalServerError)
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	if err := json.NewEncoder(w).Encode(toDetailResponse(*record)); err != nil {
+		http.Error(w, "failed to encode response", http.StatusInternalServerError)
 	}
 }
 

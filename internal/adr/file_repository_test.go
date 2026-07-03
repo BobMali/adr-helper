@@ -282,6 +282,37 @@ func TestFileRepository_Save_Conflict(t *testing.T) {
 	assert.ErrorIs(t, err, ErrConflict)
 }
 
+// --- UpdateContent ---
+
+func TestFileRepository_UpdateContent_Success(t *testing.T) {
+	dir := t.TempDir()
+	writeFile(t, dir, "0001-use-go.md", "# 1. Use Go\n\nDate: 2024-01-15\n\n## Status\n\nProposed\n\n## Context\n\nOld context.\n")
+
+	repo := NewFileRepository(dir)
+	newContent := "# 1. Use Go\n\nDate: 2024-01-15\n\n## Status\n\nProposed\n\n## Context\n\nUpdated context.\n"
+	record, err := repo.UpdateContent(context.Background(), 1, newContent)
+
+	require.NoError(t, err)
+	assert.Equal(t, 1, record.Number)
+	assert.Equal(t, "Use Go", record.Title)
+	assert.Contains(t, record.Content, "Updated context.")
+
+	// Verify file was actually written
+	data, err := os.ReadFile(filepath.Join(dir, "0001-use-go.md"))
+	require.NoError(t, err)
+	assert.Equal(t, newContent, string(data))
+}
+
+func TestFileRepository_UpdateContent_NotFound(t *testing.T) {
+	dir := t.TempDir()
+
+	repo := NewFileRepository(dir)
+	_, err := repo.UpdateContent(context.Background(), 99, "# 99. Missing\n")
+
+	assert.Error(t, err)
+	assert.ErrorIs(t, err, ErrNotFound)
+}
+
 func writeFile(t *testing.T, dir, name, content string) {
 	t.Helper()
 	err := os.WriteFile(filepath.Join(dir, name), []byte(content), 0o644)

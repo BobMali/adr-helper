@@ -1,9 +1,11 @@
 # Build artifacts
 bin/
+/adr-web
 *.test
 coverage.*
 
 # Frontend
+node_modules/
 web/node_modules/
 web/dist/
 

@@ -81,6 +81,54 @@ func TestRenderTemplate_MADRMinimalNoStatusUnchanged(t *testing.T) {
 	assert.Contains(t, result, "## Context and Problem Statement")
 }
 
+// --- ReplaceSectionContent ---
+
+func TestReplaceSectionContent_ReplacesH2BetweenTwoH2s(t *testing.T) {
+	content := "# Title\n\n## Context\n\nOld context text.\n\n## Decision\n\nSome decision.\n"
+	result, found := adr.ReplaceSectionContent(content, "Context", "New context text.")
+	assert.True(t, found)
+	assert.Contains(t, result, "## Context\n\nNew context text.\n\n## Decision")
+	assert.Contains(t, result, "Some decision.")
+}
+
+func TestReplaceSectionContent_ReplacesLastH2BeforeEOF(t *testing.T) {
+	content := "# Title\n\n## Context\n\nSome context.\n\n## Consequences\n\nOld consequences.\n"
+	result, found := adr.ReplaceSectionContent(content, "Consequences", "New consequences.")
+	assert.True(t, found)
+	assert.Contains(t, result, "## Consequences\n\nNew consequences.\n")
+	assert.NotContains(t, result, "Old consequences.")
+}
+
+func TestReplaceSectionContent_ReplacesH3Subsection(t *testing.T) {
+	content := "## Decision Outcome\n\nChosen option.\n\n### Consequences\n\nOld consequences.\n\n### Confirmation\n\nSome confirmation.\n"
+	result, found := adr.ReplaceSectionContent(content, "Consequences", "New consequences.")
+	assert.True(t, found)
+	assert.Contains(t, result, "### Consequences\n\nNew consequences.\n\n### Confirmation")
+	assert.Contains(t, result, "Some confirmation.")
+}
+
+func TestReplaceSectionContent_ReturnsFalseWhenNotFound(t *testing.T) {
+	content := "# Title\n\n## Context\n\nSome text.\n"
+	result, found := adr.ReplaceSectionContent(content, "Nonexistent", "New text.")
+	assert.False(t, found)
+	assert.Equal(t, content, result)
+}
+
+func TestReplaceSectionContent_PreservesOtherSections(t *testing.T) {
+	content := "# Title\n\n## Context\n\nOld context.\n\n## Decision\n\nKeep this.\n\n## Consequences\n\nKeep this too.\n"
+	result, found := adr.ReplaceSectionContent(content, "Context", "New context.")
+	assert.True(t, found)
+	assert.Contains(t, result, "## Decision\n\nKeep this.")
+	assert.Contains(t, result, "## Consequences\n\nKeep this too.")
+}
+
+func TestReplaceSectionContent_CaseInsensitiveMatch(t *testing.T) {
+	content := "# Title\n\n## Context\n\nOld text.\n\n## Decision\n\nDecision.\n"
+	result, found := adr.ReplaceSectionContent(content, "context", "New text.")
+	assert.True(t, found)
+	assert.Contains(t, result, "## Context\n\nNew text.")
+}
+
 func TestRenderTemplate_PreservesBody(t *testing.T) {
 	record := &adr.ADR{Number: 1, Title: "Test", Date: time.Date(2024, 1, 1, 0, 0, 0, 0, time.UTC)}
 	content := "# Title\n\nDate:\n\n## Status\n\n## Context\n\n## Decision\n\n## Consequences\n"

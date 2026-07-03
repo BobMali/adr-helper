@@ -11,6 +11,15 @@ export interface ADRDetail extends ADRSummary {
 
 export interface CreateADRPayload {
   title: string
+  sections?: Record<string, string>
+}
+
+export interface TemplateSectionDef {
+  key: string
+  heading: string
+  kind: string
+  optional: boolean
+  placeholder: string
 }
 
 export type SortField = 'number' | 'title' | 'status'

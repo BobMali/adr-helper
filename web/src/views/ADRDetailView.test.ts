@@ -14,16 +14,18 @@ vi.mock('../api', async (importOriginal) => {
     fetchADRs: vi.fn(),
     updateADRStatus: vi.fn(),
     addRelation: vi.fn(),
+    updateADRContent: vi.fn(),
   }
 })
 
-import { fetchADR, fetchStatuses, fetchADRs, updateADRStatus, addRelation } from '../api'
+import { fetchADR, fetchStatuses, fetchADRs, updateADRStatus, addRelation, updateADRContent } from '../api'
 
 const mockedFetchADR = fetchADR as ReturnType<typeof vi.fn>
 const mockedFetchStatuses = fetchStatuses as ReturnType<typeof vi.fn>
 const mockedFetchADRs = fetchADRs as ReturnType<typeof vi.fn>
 const mockedUpdateADRStatus = updateADRStatus as ReturnType<typeof vi.fn>
 const mockedAddRelation = addRelation as ReturnType<typeof vi.fn>
+const mockedUpdateADRContent = updateADRContent as ReturnType<typeof vi.fn>
 
 const sampleDetail: ADRDetail = {
   number: 5,
@@ -620,6 +622,147 @@ describe('ADRDetailView', () => {
       resolveRelation({ ...sampleDetail })
       await flushPromises()
       vi.useRealTimers()
+    })
+  })
+
+  describe('edit mode', () => {
+    beforeEach(() => {
+      mockedFetchADR.mockResolvedValue({ ...sampleDetail })
+      mockedFetchStatuses.mockResolvedValue([...sampleStatuses])
+    })
+
+    it('shows Edit button', async () => {
+      const { wrapper } = await mountView()
+      await flushPromises()
+
+      const editBtn = wrapper.findAll('button').find(b => b.text() === 'Edit')
+      expect(editBtn).toBeTruthy()
+    })
+
+    it('clicking Edit shows warning panel', async () => {
+      const { wrapper } = await mountView()
+      await flushPromises()
+
+      const editBtn = wrapper.findAll('button').find(b => b.text() === 'Edit')!
+      await editBtn.trigger('click')
+      await nextTick()
+
+      expect(wrapper.text()).toContain('ADRs are immutable records')
+      expect(wrapper.text()).toContain('I understand, enable editing')
+    })
+
+    it('cancel from warning returns to normal', async () => {
+      const { wrapper } = await mountView()
+      await flushPromises()
+
+      const editBtn = wrapper.findAll('button').find(b => b.text() === 'Edit')!
+      await editBtn.trigger('click')
+      await nextTick()
+
+      const cancelBtn = wrapper.findAll('button').find(b => b.text() === 'Cancel')!
+      await cancelBtn.trigger('click')
+      await nextTick()
+
+      expect(wrapper.text()).not.toContain('ADRs are immutable records')
+      expect(wrapper.find('section').exists()).toBe(true)
+    })
+
+    it('confirm shows textarea and hides rendered content', async () => {
+      const { wrapper } = await mountView()
+      await flushPromises()
+
+      const editBtn = wrapper.findAll('button').find(b => b.text() === 'Edit')!
+      await editBtn.trigger('click')
+      await nextTick()
+
+      const confirmBtn = wrapper.findAll('button').find(b => b.text().includes('I understand'))!
+      await confirmBtn.trigger('click')
+      await nextTick()
+
+      expect(wrapper.find('textarea').exists()).toBe(true)
+      expect(wrapper.find('section').exists()).toBe(false)
+      expect(wrapper.text()).toContain('Editing')
+    })
+
+    it('status dropdown disabled in edit mode', async () => {
+      const { wrapper } = await mountView()
+      await flushPromises()
+
+      const editBtn = wrapper.findAll('button').find(b => b.text() === 'Edit')!
+      await editBtn.trigger('click')
+      await nextTick()
+      const confirmBtn = wrapper.findAll('button').find(b => b.text().includes('I understand'))!
+      await confirmBtn.trigger('click')
+      await nextTick()
+
+      const select = wrapper.find<HTMLSelectElement>('select#status-select')
+      expect(select.element.disabled).toBe(true)
+    })
+
+    it('Add relation button hidden in edit mode', async () => {
+      const { wrapper } = await mountView()
+      await flushPromises()
+
+      const editBtn = wrapper.findAll('button').find(b => b.text() === 'Edit')!
+      await editBtn.trigger('click')
+      await nextTick()
+      const confirmBtn = wrapper.findAll('button').find(b => b.text().includes('I understand'))!
+      await confirmBtn.trigger('click')
+      await nextTick()
+
+      const addRelBtn = wrapper.findAll('button').find(b => b.text().includes('Add relation'))
+      expect(addRelBtn).toBeUndefined()
+    })
+
+    it('save updates content and exits edit mode', async () => {
+      const updatedDetail = { ...sampleDetail, content: '## Context\nUpdated content.' }
+      mockedUpdateADRContent.mockResolvedValue(updatedDetail)
+
+      const { wrapper } = await mountView()
+      await flushPromises()
+
+      // Enter edit mode
+      const editBtn = wrapper.findAll('button').find(b => b.text() === 'Edit')!
+      await editBtn.trigger('click')
+      await nextTick()
+      const confirmBtn = wrapper.findAll('button').find(b => b.text().includes('I understand'))!
+      await confirmBtn.trigger('click')
+      await nextTick()
+
+      // Edit and save
+      await wrapper.find('textarea').setValue('## Context\nUpdated content.')
+      const saveBtn = wrapper.findAll('button').find(b => b.text() === 'Save')!
+      await saveBtn.trigger('click')
+      await flushPromises()
+
+      expect(mockedUpdateADRContent).toHaveBeenCalledWith(5, '## Context\nUpdated content.')
+      // Back to rendered view
+      expect(wrapper.find('section').exists()).toBe(true)
+      expect(wrapper.find('textarea').exists()).toBe(false)
+      expect(wrapper.text()).toContain('Content updated successfully')
+    })
+
+    it('save error stays in edit mode and shows error', async () => {
+      mockedUpdateADRContent.mockRejectedValue(new Error('Save failed'))
+
+      const { wrapper } = await mountView()
+      await flushPromises()
+
+      // Enter edit mode
+      const editBtn = wrapper.findAll('button').find(b => b.text() === 'Edit')!
+      await editBtn.trigger('click')
+      await nextTick()
+      const confirmBtn = wrapper.findAll('button').find(b => b.text().includes('I understand'))!
+      await confirmBtn.trigger('click')
+      await nextTick()
+
+      // Try to save
+      const saveBtn = wrapper.findAll('button').find(b => b.text() === 'Save')!
+      await saveBtn.trigger('click')
+      await flushPromises()
+
+      expect(wrapper.find('textarea').exists()).toBe(true)
+      expect(wrapper.text()).toContain('Save failed')
     })
   })
 })

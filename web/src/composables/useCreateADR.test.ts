@@ -1,6 +1,6 @@
 import { useCreateADR } from './useCreateADR'
 import { withSetup } from './testHelper'
-import type { ADRDetail } from '../types'
+import type { ADRDetail, TemplateSectionDef } from '../types'
 
 vi.mock('../api', async (importOriginal) => {
   const actual = await importOriginal<typeof import('../api')>()
@@ -22,6 +22,12 @@ const sampleDetail: ADRDetail = {
   content: '# 3. Use PostgreSQL\n\n## Status\n\nProposed\n',
 }
 
+const sampleSectionDefs: TemplateSectionDef[] = [
+  { key: 'context', heading: 'Context', kind: 'h2', optional: false, placeholder: 'Some text' },
+  { key: 'decision', heading: 'Decision', kind: 'h2', optional: false, placeholder: 'Some text' },
+  { key: 'consequences', heading: 'Consequences', kind: 'h2', optional: true, placeholder: 'Some text' },
+]
+
 afterEach(() => {
   vi.restoreAllMocks()
   vi.clearAllMocks()
@@ -29,11 +35,13 @@ afterEach(() => {
 
 describe('useCreateADR', () => {
   it('has correct initial state', () => {
-    const [{ title, submitting, submitError }] = withSetup(() => useCreateADR())
+    const [{ title, submitting, submitError, sections, sectionErrors }] = withSetup(() => useCreateADR())
 
     expect(title.value).toBe('')
     expect(submitting.value).toBe(false)
     expect(submitError.value).toBe('')
+    expect(sections.value).toEqual({})
+    expect(sectionErrors.value).toEqual({})
   })
 
   it('empty title sets error and returns null without calling API', async () => {
@@ -85,5 +93,51 @@ describe('useCreateADR', () => {
     resolve(sampleDetail)
     await promise
     expect(submitting.value).toBe(false)
+  })
+
+  it('includes sections in createADR call', async () => {
+    mockedCreateADR.mockResolvedValue(sampleDetail)
+
+    const [{ title, sections, submit }] = withSetup(() => useCreateADR())
+
+    title.value = 'Use PostgreSQL'
+    sections.value = { context: 'We need a DB.', decision: 'Use PostgreSQL.' }
+    const result = await submit(sampleSectionDefs)
+
+    expect(mockedCreateADR).toHaveBeenCalledWith({
+      title: 'Use PostgreSQL',
+      sections: { context: 'We need a DB.', decision: 'Use PostgreSQL.' },
+    })
+    expect(result).toEqual(sampleDetail)
+  })
+
+  it('required section empty sets sectionErrors and returns null', async () => {
+    const [{ title, sections, submit, sectionErrors }] = withSetup(() => useCreateADR())
+
+    title.value = 'Test'
+    sections.value = { context: 'Some context' } // decision is missing (required)
+    const result = await submit(sampleSectionDefs)
+
+    expect(result).toBeNull()
+    expect(sectionErrors.value['decision']).toBe('Decision is required')
+    expect(mockedCreateADR).not.toHaveBeenCalled()
+  })
+
+  it('optional section empty is not included in payload and no error', async () => {
+    mockedCreateADR.mockResolvedValue(sampleDetail)
+
+    const [{ title, sections, submit, sectionErrors }] = withSetup(() => useCreateADR())
+
+    title.value = 'Test'
+    sections.value = { context: 'Some context', decision: 'A decision' }
+    // consequences is optional and empty
+    const result = await submit(sampleSectionDefs)
+
+    expect(result).toEqual(sampleDetail)
+    expect(sectionErrors.value).toEqual({})
+    expect(mockedCreateADR).toHaveBeenCalledWith({
+      title: 'Test',
+      sections: { context: 'Some context', decision: 'A decision' },
+    })
   })
 })

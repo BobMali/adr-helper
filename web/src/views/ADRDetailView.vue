@@ -9,6 +9,7 @@ import { useStatusUpdate } from '../composables/useStatusUpdate'
 import { useSupersede } from '../composables/useSupersede'
 import { useRelation } from '../composables/useRelation'
 import { useADRSearch } from '../composables/useADRSearch'
+import { useEditContent } from '../composables/useEditContent'
 import SupersedeSelector from '../components/SupersedeSelector.vue'
 import RelationInput from '../components/RelationInput.vue'
 
@@ -17,7 +18,9 @@ const props = defineProps<{ number: number }>()
 const route = useRoute()
 const router = useRouter()
 const createdBanner = ref(false)
+const editSuccessBanner = ref(false)
 let bannerTimer: ReturnType<typeof setTimeout> | null = null
+let editBannerTimer: ReturnType<typeof setTimeout> | null = null
 
 const adr = ref<ADRDetail | null>(null)
 const statuses = ref<string[]>([])
@@ -58,6 +61,16 @@ const {
 
 const search = useADRSearch()
 
+const {
+  editState,
+  editedContent,
+  saveError,
+  requestEdit,
+  confirmEdit,
+  cancelEdit,
+  saveEdit,
+} = useEditContent()
+
 const filteredRelationResults = computed(() =>
   search.adrs.value.filter(a => a.number !== props.number),
 )
@@ -94,6 +107,8 @@ const formattedDate = computed(() => {
   }).format(d)
 })
 
+const isEditing = computed(() => editState.value === 'editing' || editState.value === 'saving')
+
 onMounted(async () => {
   try {
     const [adrData, statusData] = await Promise.all([
@@ -126,6 +141,7 @@ onMounted(async () => {
 
 onUnmounted(() => {
   if (bannerTimer) clearTimeout(bannerTimer)
+  if (editBannerTimer) clearTimeout(editBannerTimer)
 })
 
 function statusDisplayText(s: string): string {
@@ -208,6 +224,29 @@ async function handleRelationSelect(targetNumber: number) {
     closeRelationPanel()
   }
 }
+
+function handleRequestEdit() {
+  requestEdit()
+}
+
+function handleConfirmEdit() {
+  if (adr.value) {
+    confirmEdit(adr.value.content)
+  }
+}
+
+function handleCancelEdit() {
+  cancelEdit()
+}
+
+async function handleSaveEdit() {
+  const result = await saveEdit(props.number)
+  if (result) {
+    adr.value = result
+    editSuccessBanner.value = true
+    editBannerTimer = setTimeout(() => { editSuccessBanner.value = false }, 4000)
+  }
+}
 </script>
 
 <template>
@@ -257,6 +296,14 @@ async function handleRelationSelect(targetNumber: number) {
       ADR created successfully
     </div>
 
+    <div
+      v-if="editSuccessBanner"
+      role="status"
+      class="mb-4 rounded-lg bg-green-50 dark:bg-green-900/30 border border-green-200 dark:border-green-800 px-4 py-3 text-sm text-green-700 dark:text-green-300"
+    >
+      Content updated successfully
+    </div>
+
     <header class="mb-6">
       <h1
         id="adr-title"
@@ -275,9 +322,9 @@ async function handleRelationSelect(targetNumber: number) {
           <select
             id="status-select"
             v-model="selectedStatus"
-            :disabled="pendingSuperseded || updating"
+            :disabled="pendingSuperseded || updating || isEditing"
             :aria-busy="updating"
-            :aria-disabled="pendingSuperseded || undefined"
+            :aria-disabled="pendingSuperseded || isEditing || undefined"
             class="rounded border border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-900 text-sm px-2 py-1 text-gray-900 dark:text-gray-100 focus-visible:ring-2 focus-visible:ring-blue-500 focus-visible:outline-none disabled:opacity-50"
           >
             <option v-for="s in statuses" :key="s" :value="s">{{ statusDisplayText(s) }}</option>
@@ -287,7 +334,7 @@ async function handleRelationSelect(targetNumber: number) {
 
         <button
           ref="addRelationBtnRef"
-          v-if="!showRelationInput && !pendingSuperseded"
+          v-if="!showRelationInput && !pendingSuperseded && !isEditing"
           :disabled="updating || adding"
           :aria-expanded="showRelationInput"
           class="text-sm text-blue-600 dark:text-blue-400 hover:underline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-blue-500 disabled:opacity-50"
@@ -295,7 +342,73 @@ async function handleRelationSelect(targetNumber: number) {
         >
           + Add relation
         </button>
+
+        <button
+          v-if="editState === 'idle'"
+          class="text-sm text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-200 hover:underline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-blue-500"
+          @click="handleRequestEdit"
+        >
+          Edit
+        </button>
       </div>
+
+      <!-- Edit warning panel -->
+      <div
+        v-if="editState === 'confirming'"
+        class="mt-4 border-l-2 border-amber-400 bg-amber-50 dark:bg-amber-900/20 rounded-r-lg px-4 py-3"
+      >
+        <p class="text-sm text-amber-800 dark:text-amber-200">
+          ADRs are immutable records of decisions. Editing changes the historical record. Consider superseding this ADR instead.
+        </p>
+        <div class="mt-3 flex gap-2">
+          <button
+            class="px-3 py-1.5 text-sm rounded-lg border border-gray-300 dark:border-gray-700 text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-800"
+            @click="handleCancelEdit"
+          >
+            Cancel
+          </button>
+          <button
+            class="px-3 py-1.5 text-sm rounded-lg bg-amber-600 text-white hover:bg-amber-700"
+            @click="handleConfirmEdit"
+          >
+            I understand, enable editing
+          </button>
+        </div>
+      </div>
+
+      <!-- Editing banner -->
+      <div
+        v-if="isEditing"
+        class="mt-4 border-l-2 border-amber-400 bg-amber-50 dark:bg-amber-900/20 rounded-r-lg px-4 py-3 flex items-center justify-between"
+      >
+        <span class="text-sm font-medium text-amber-800 dark:text-amber-200">Editing</span>
+        <div class="flex gap-2">
+          <button
+            :disabled="editState === 'saving'"
+            class="px-3 py-1.5 text-sm rounded-lg border border-gray-300 dark:border-gray-700 text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-800 disabled:opacity-50"
+            @click="handleCancelEdit"
+          >
+            Cancel
+          </button>
+          <button
+            :disabled="editState === 'saving'"
+            :aria-busy="editState === 'saving'"
+            class="px-3 py-1.5 text-sm rounded-lg bg-blue-600 text-white hover:bg-blue-700 disabled:opacity-50"
+            @click="handleSaveEdit"
+          >
+            {{ editState === 'saving' ? 'Saving\u2026' : 'Save' }}
+          </button>
+        </div>
+      </div>
+
+      <!-- Save error -->
+      <p
+        v-if="saveError"
+        role="alert"
+        class="mt-2 text-sm text-red-600 dark:text-red-400"
+      >
+        {{ saveError }}
+      </p>
 
       <!-- Supersede selector -->
       <SupersedeSelector
@@ -335,7 +448,19 @@ async function handleRelationSelect(targetNumber: number) {
       </div>
     </header>
 
+    <!-- Edit mode: raw markdown textarea -->
+    <textarea
+      v-if="isEditing"
+      v-model="editedContent"
+      :disabled="editState === 'saving'"
+      class="w-full py-3 px-4 rounded-lg border border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-900 text-sm font-mono focus:outline-none focus:ring-2 focus:ring-blue-500 disabled:opacity-50 resize-y min-h-[20rem]"
+      rows="20"
+      aria-label="ADR content (raw markdown)"
+    />
+
+    <!-- Rendered content -->
     <section
+      v-else
       class="prose dark:prose-invert max-w-none"
       v-html="renderedContent"
     ></section>

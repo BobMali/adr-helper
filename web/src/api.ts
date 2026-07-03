@@ -1,4 +1,4 @@
-import type { ADRSummary, ADRDetail, CreateADRPayload } from './types'
+import type { ADRSummary, ADRDetail, CreateADRPayload, TemplateSectionDef } from './types'
 
 async function apiFetch(url: string, init?: RequestInit): Promise<Response> {
   try {
@@ -85,6 +85,29 @@ export async function addRelation(number: number, relatedTo: number): Promise<AD
   }
   if (!res.ok) {
     throw new Error(`Failed to add relation: ${res.status}`)
+  }
+  return res.json()
+}
+
+export async function fetchTemplateSections(): Promise<TemplateSectionDef[]> {
+  const res = await apiFetch('/api/template-sections')
+  if (!res.ok) {
+    throw new Error(`Failed to fetch template sections: ${res.status}`)
+  }
+  return res.json()
+}
+
+export async function updateADRContent(number: number, content: string): Promise<ADRDetail> {
+  const res = await apiFetch(`/api/adr/${number}`, {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ content }),
+  })
+  if (res.status === 404) {
+    throw new NotFoundError(`ADR #${number} not found`)
+  }
+  if (!res.ok) {
+    throw new Error(`Failed to update content: ${res.status}`)
   }
   return res.json()
 }

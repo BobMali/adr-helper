@@ -879,6 +879,207 @@ func TestCreateADR_Conflict(t *testing.T) {
 	assert.Equal(t, http.StatusConflict, rec.Code)
 }
 
+// --- PUT /api/adr/{number} ---
+
+var _ web.ContentUpdater = (*mockContentUpdater)(nil)
+
+type mockContentUpdater struct {
+	result  *adr.ADR
+	err     error
+	called  bool
+	content string
+	number  int
+}
+
+func (m *mockContentUpdater) UpdateContent(_ context.Context, number int, content string) (*adr.ADR, error) {
+	m.called = true
+	m.number = number
+	m.content = content
+	return m.result, m.err
+}
+
+func TestUpdateContent_Success(t *testing.T) {
+	updater := &mockContentUpdater{
+		result: &adr.ADR{
+			Number:  1,
+			Title:   "Use Go",
+			Status:  adr.Accepted,
+			Date:    time.Date(2024, 1, 15, 0, 0, 0, 0, time.UTC),
+			Content: "# 1. Use Go\n\n## Status\n\nAccepted\n\n## Context\n\nUpdated.\n",
+		},
+	}
+	repo := &mockRepo{}
+	srv := web.NewServer(repo, web.WithContentUpdater(updater))
+
+	body := strings.NewReader(`{"content":"# 1. Use Go\n\n## Status\n\nAccepted\n\n## Context\n\nUpdated.\n"}`)
+	req := httptest.NewRequest(http.MethodPut, "/api/adr/1", body)
+	req.Header.Set("Content-Type", "application/json")
+	rec := httptest.NewRecorder()
+
+	srv.Handler().ServeHTTP(rec, req)
+
+	assert.Equal(t, http.StatusOK, rec.Code)
+	assert.True(t, updater.called)
+
+	var resp map[string]interface{}
+	err := json.Unmarshal(rec.Body.Bytes(), &resp)
+	require.NoError(t, err)
+	assert.Equal(t, float64(1), resp["number"])
+	assert.NotEmpty(t, resp["content"])
+}
+
+func TestUpdateContent_EmptyContent(t *testing.T) {
+	updater := &mockContentUpdater{}
+	repo := &mockRepo{}
+	srv := web.NewServer(repo, web.WithContentUpdater(updater))
+
+	body := strings.NewReader(`{"content":""}`)
+	req := httptest.NewRequest(http.MethodPut, "/api/adr/1", body)
+	req.Header.Set("Content-Type", "application/json")
+	rec := httptest.NewRecorder()
+
+	srv.Handler().ServeHTTP(rec, req)
+
+	assert.Equal(t, http.StatusBadRequest, rec.Code)
+	assert.False(t, updater.called)
+}
+
+func TestUpdateContent_HeadingNumberMismatch(t *testing.T) {
+	updater := &mockContentUpdater{}
+	repo := &mockRepo{}
+	srv := web.NewServer(repo, web.WithContentUpdater(updater))
+
+	body := strings.NewReader(`{"content":"# 99. Wrong Number\n\n## Status\n\nProposed\n"}`)
+	req := httptest.NewRequest(http.MethodPut, "/api/adr/1", body)
+	req.Header.Set("Content-Type", "application/json")
+	rec := httptest.NewRecorder()
+
+	srv.Handler().ServeHTTP(rec, req)
+
+	assert.Equal(t, http.StatusBadRequest, rec.Code)
+	assert.Contains(t, rec.Body.String(), "heading number")
+	assert.False(t, updater.called)
+}
+
+func TestUpdateContent_NotFound(t *testing.T) {
+	updater := &mockContentUpdater{
+		err: fmt.Errorf("ADR 0099: %w", adr.ErrNotFound),
+	}
+	repo := &mockRepo{}
+	srv := web.NewServer(repo, web.WithContentUpdater(updater))
+
+	body := strings.NewReader(`{"content":"# 99. Missing\n"}`)
+	req := httptest.NewRequest(http.MethodPut, "/api/adr/99", body)
+	req.Header.Set("Content-Type", "application/json")
+	rec := httptest.NewRecorder()
+
+	srv.Handler().ServeHTTP(rec, req)
+
+	assert.Equal(t, http.StatusNotFound, rec.Code)
+}
+
+func TestUpdateContent_NoUpdater(t *testing.T) {
+	repo := &mockRepo{}
+	srv := web.NewServer(repo)
+
+	body := strings.NewReader(`{"content":"# 1. Test\n"}`)
+	req := httptest.NewRequest(http.MethodPut, "/api/adr/1", body)
+	req.Header.Set("Content-Type", "application/json")
+	rec := httptest.NewRecorder()
+
+	srv.Handler().ServeHTTP(rec, req)
+
+	assert.Equal(t, http.StatusNotImplemented, rec.Code)
+}
+
+// --- POST /api/adr with sections ---
+
+func TestCreateADR_WithSections(t *testing.T) {
+	repo := &mockRepo{nextNum: 3}
+	cfg := &adr.Config{Version: "1", Directory: "docs/adr", Template: "nygard"}
+	srv := web.NewServer(repo, web.WithConfig(cfg))
+
+	body := strings.NewReader(`{"title":"Use PostgreSQL","sections":{"context":"We need a reliable database.","decision":"Use PostgreSQL.","consequences":"More ops work."}}`)
+	req := httptest.NewRequest(http.MethodPost, "/api/adr", body)
+	req.Header.Set("Content-Type", "application/json")
+	rec := httptest.NewRecorder()
+
+	srv.Handler().ServeHTTP(rec, req)
+
+	assert.Equal(t, http.StatusCreated, rec.Code)
+	assert.True(t, repo.saveCalled)
+	// Content should contain user-provided text, not template placeholder
+	assert.Contains(t, repo.savedADR.Content, "We need a reliable database.")
+	assert.Contains(t, repo.savedADR.Content, "Use PostgreSQL.")
+	assert.Contains(t, repo.savedADR.Content, "More ops work.")
+	assert.NotContains(t, repo.savedADR.Content, "What is the issue")
+}
+
+func TestCreateADR_WithoutSections_BackwardsCompat(t *testing.T) {
+	repo := &mockRepo{nextNum: 1}
+	cfg := &adr.Config{Version: "1", Directory: "docs/adr", Template: "nygard"}
+	srv := web.NewServer(repo, web.WithConfig(cfg))
+
+	body := strings.NewReader(`{"title":"Use Go"}`)
+	req := httptest.NewRequest(http.MethodPost, "/api/adr", body)
+	req.Header.Set("Content-Type", "application/json")
+	rec := httptest.NewRecorder()
+
+	srv.Handler().ServeHTTP(rec, req)
+
+	assert.Equal(t, http.StatusCreated, rec.Code)
+	assert.True(t, repo.saveCalled)
+	// Content should still contain template placeholder text
+	assert.Contains(t, repo.savedADR.Content, "What is the issue")
+}
+
+func TestCreateADR_IgnoresUnknownSectionKeys(t *testing.T) {
+	repo := &mockRepo{nextNum: 1}
+	cfg := &adr.Config{Version: "1", Directory: "docs/adr", Template: "nygard"}
+	srv := web.NewServer(repo, web.WithConfig(cfg))
+
+	body := strings.NewReader(`{"title":"Test","sections":{"nonexistent":"Some value"}}`)
+	req := httptest.NewRequest(http.MethodPost, "/api/adr", body)
+	req.Header.Set("Content-Type", "application/json")
+	rec := httptest.NewRecorder()
+
+	srv.Handler().ServeHTTP(rec, req)
+
+	assert.Equal(t, http.StatusCreated, rec.Code)
+}
+
+// --- GET /api/template-sections ---
+
+func TestGetTemplateSections_ReturnsNygardSections(t *testing.T) {
+	cfg := &adr.Config{Version: "1", Directory: "docs/adr", Template: "nygard"}
+	srv := web.NewServer(nil, web.WithConfig(cfg))
+
+	req := httptest.NewRequest(http.MethodGet, "/api/template-sections", nil)
+	rec := httptest.NewRecorder()
+
+	srv.Handler().ServeHTTP(rec, req)
+
+	assert.Equal(t, http.StatusOK, rec.Code)
+	assert.Equal(t, "application/json", rec.Header().Get("Content-Type"))
+
+	var sections []map[string]interface{}
+	err := json.Unmarshal(rec.Body.Bytes(), &sections)
+	require.NoError(t, err)
+	assert.Len(t, sections, 3)
+	assert.Equal(t, "context", sections[0]["key"])
+}
+
+func TestGetTemplateSections_NoConfig(t *testing.T) {
+	srv := web.NewServer(nil)
+
+	req := httptest.NewRequest(http.MethodGet, "/api/template-sections", nil)
+	rec := httptest.NewRecorder()
+
+	srv.Handler().ServeHTTP(rec, req)
+
+	assert.Equal(t, http.StatusServiceUnavailable, rec.Code)
+}
+
 func trimNewline(s string) string {
 	if len(s) > 0 && s[len(s)-1] == '\n' {
 		return s[:len(s)-1]
