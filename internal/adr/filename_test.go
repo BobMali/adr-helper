@@ -119,3 +119,26 @@ func TestFindADRFile_IgnoresTemplate(t *testing.T) {
 	_, err := adr.FindADRFile(dir, 1)
 	assert.Error(t, err)
 }
+
+func TestIsADRFilename(t *testing.T) {
+	tests := []struct {
+		name string
+		want bool
+	}{
+		{"0001-x.md", true},      // 4-digit boundary
+		{"12345-notes.md", true}, // more than 4 digits
+		{"template.md", false},   // no digit prefix
+		{"adr-template.md", false},
+		{"999-x.md", false},   // 3 digits — just below the {4,} boundary
+		{"9-x.md", false},     // 1 digit
+		{"0001.md", false},    // digits but no hyphen
+		{"0001-x.txt", false}, // wrong extension
+		{"0001-x.MD", false},  // case-sensitive .md
+		{"", false},           // empty
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			assert.Equal(t, tt.want, adr.IsADRFilename(tt.name))
+		})
+	}
+}

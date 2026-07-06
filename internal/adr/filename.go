@@ -9,6 +9,13 @@ import (
 
 var adrFilePattern = regexp.MustCompile(`^(\d{4,})-.*\.md$`)
 
+// IsADRFilename reports whether name matches the ADR file naming convention
+// (NNNN-*.md, four or more leading digits). name must be a bare filename, not a
+// path: passing a value that may contain '/' or '\' can yield a misleading result.
+func IsADRFilename(name string) bool {
+	return adrFilePattern.MatchString(name)
+}
+
 // FormatFilename returns the ADR filename for the given number and title.
 func FormatFilename(number int, title string) (string, error) {
 	slug, err := Slugify(title)

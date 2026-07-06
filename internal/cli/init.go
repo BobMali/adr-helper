@@ -21,6 +21,9 @@ func validateTemplateFile(name string) error {
 	if filepath.Ext(name) != ".md" {
 		return fmt.Errorf("template file name must have .md extension: %q", name)
 	}
+	if adr.IsADRFilename(name) {
+		return fmt.Errorf("template file name must not look like an ADR file name (NNNN-*.md): %q", name)
+	}
 	return nil
 }
 

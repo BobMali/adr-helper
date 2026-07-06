@@ -410,6 +410,25 @@ func TestInitCmd_TemplateFileNonMdExtension_ReturnsError(t *testing.T) {
 	assert.Contains(t, err.Error(), ".md")
 }
 
+func TestInitCmd_TemplateFileLooksLikeADR_ReturnsError(t *testing.T) {
+	tmpDir := chdirTemp(t)
+
+	root := cli.NewRootCmd()
+	root.SetArgs([]string{"init", "adrs", "--template-file", "0001-notes.md"})
+	root.SilenceErrors = true
+	root.SilenceUsage = true
+
+	err := root.Execute()
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "ADR file")
+
+	// Validation runs before any mutation, so nothing must be written.
+	_, statErr := os.Stat(filepath.Join(tmpDir, "adrs"))
+	assert.True(t, os.IsNotExist(statErr), "no ADR directory should be created")
+	_, statErr = os.Stat(filepath.Join(tmpDir, adr.ConfigFileName))
+	assert.True(t, os.IsNotExist(statErr), "no config should be written")
+}
+
 // --- Scope auto-discovery tests ---
 
 func TestInitCmd_DiscoversScopesFromExistingADRs(t *testing.T) {

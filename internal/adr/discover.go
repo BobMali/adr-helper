@@ -35,7 +35,7 @@ func DiscoverScopes(dir string) ([]string, error) {
 
 	var tokens []string
 	for _, entry := range entries {
-		if entry.IsDir() || !adrFilePattern.MatchString(entry.Name()) {
+		if entry.IsDir() || !IsADRFilename(entry.Name()) {
 			continue
 		}
 		content, err := os.ReadFile(filepath.Join(dir, entry.Name()))
