@@ -6,6 +6,7 @@ import (
 	"io/fs"
 	"log"
 	"os"
+	"strings"
 	"sync"
 
 	"github.com/BobMali/adr-helper/internal/adr"
@@ -59,6 +60,23 @@ func main() {
 		opts = append(opts, web.WithSuperseder(fileRepo))
 		opts = append(opts, web.WithRelator(fileRepo))
 		opts = append(opts, web.WithContentUpdater(fileRepo))
+
+		// Auto-discover scopes from existing ADRs into the served vocabulary.
+		// In-memory only: no config write at boot (safe on read-only mounts and
+		// multi-replica deploys). Persistence stays with `adr init` / `adr scope
+		// discover`, and lazily via the next web AddScope which saves the config.
+		added, invalid, derr := adr.DiscoverAndMergeScopes(cfg)
+		if derr != nil {
+			log.Printf("warning: scope discovery failed: %v", derr)
+		}
+		for _, v := range invalid {
+			log.Printf("warning: skipped invalid scope %q from ADRs", v)
+		}
+		if len(added) > 0 {
+			log.Printf("discovered %d scope(s) from existing ADRs (in-memory; run 'adr scope discover' to persist): %s",
+				len(added), strings.Join(added, ", "))
+		}
+
 		opts = append(opts, web.WithConfig(cfg))
 		opts = append(opts, web.WithScopeStore(&configScopeStore{dir: ".", cfg: cfg}))
 	}

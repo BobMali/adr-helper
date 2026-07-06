@@ -13,6 +13,16 @@ var (
 	metaValueNewline = regexp.MustCompile(`[\r\n]+`)
 )
 
+// metaFieldPattern returns the regexp matching a title-block metadata line
+// "Label: value" (case-insensitive) with the value captured in group 1. It is
+// shared by ReplaceMetaField (write side) and ExtractScope (read side) so the
+// two can't drift apart. The whole-line match spans the entire line, so the
+// capture group is optional for callers that only replace.
+func metaFieldPattern(label string) *regexp.Regexp {
+	// [ \t]* (not \s*) so the match never crosses a newline into the next line.
+	return regexp.MustCompile(`(?mi)^` + regexp.QuoteMeta(label) + `:[ \t]*(.*)$`)
+}
+
 // ReplaceMetaField replaces the value of the first title-block metadata line
 // matching "Label:" (case-insensitive) with "Label: value", emitting the label
 // in the canonical spelling passed by the caller. Any newlines in value are
@@ -21,7 +31,7 @@ var (
 // line exists (e.g. a template without that field).
 func ReplaceMetaField(content, label, value string) (string, bool) {
 	sanitized := strings.TrimSpace(metaValueNewline.ReplaceAllString(value, " "))
-	pattern := regexp.MustCompile(`(?mi)^` + regexp.QuoteMeta(label) + `:.*$`)
+	pattern := metaFieldPattern(label)
 
 	found := false
 	result := pattern.ReplaceAllStringFunc(content, func(match string) string {

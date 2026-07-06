@@ -85,11 +85,26 @@ Examples:
 				Template:     template,
 				TemplateFile: templateFile,
 			}
+
+			// Auto-discover scopes from any ADRs already present in dir (the
+			// adoption / --force case). Best-effort: never block init on it.
+			added, invalid, derr := adr.DiscoverAndMergeScopes(cfg)
+			if derr != nil {
+				fmt.Fprintf(cmd.ErrOrStderr(), "warning: scope discovery failed: %v\n", derr)
+			}
+
 			if err := adr.SaveConfig(".", cfg); err != nil {
 				return fmt.Errorf("writing config: %w", err)
 			}
 
 			fmt.Fprintf(cmd.OutOrStdout(), "Initialized ADR directory at %s with template: %s\n", dir, template)
+			for _, v := range invalid {
+				fmt.Fprintf(cmd.ErrOrStderr(), "warning: skipped invalid scope %q\n", v)
+			}
+			if len(added) > 0 {
+				fmt.Fprintf(cmd.OutOrStdout(), "Discovered %d scope(s) from existing ADRs: %s\n",
+					len(added), strings.Join(added, ", "))
+			}
 			return nil
 		},
 	}

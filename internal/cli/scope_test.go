@@ -3,6 +3,8 @@ package cli_test
 import (
 	"bytes"
 	"errors"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -192,4 +194,43 @@ func TestScopeCmd_List_Empty_PrintsNoScopes(t *testing.T) {
 
 	require.NoError(t, root.Execute())
 	assert.Contains(t, buf.String(), "No scopes defined")
+}
+
+func TestScopeCmd_Discover_AddsScopesFromADRs(t *testing.T) {
+	tmpDir := chdirTemp(t)
+	initScopedWorkspace(t, tmpDir, []string{"Existing"})
+	require.NoError(t, os.WriteFile(filepath.Join(tmpDir, "docs/adr", "0001-first.md"),
+		[]byte("# 1. First\n\nScope: Backend, Frontend\n\n## Status\n\nAccepted\n"), 0o644))
+
+	buf := new(bytes.Buffer)
+	root := cli.NewRootCmd()
+	root.SetOut(buf)
+	root.SetArgs([]string{"scope", "discover"})
+	require.NoError(t, root.Execute())
+
+	assert.Contains(t, buf.String(), `Added scope "Backend"`)
+	assert.Contains(t, buf.String(), `Added scope "Frontend"`)
+
+	cfg, err := adr.LoadConfig(tmpDir)
+	require.NoError(t, err)
+	assert.Equal(t, []string{"Existing", "Backend", "Frontend"}, cfg.Scopes)
+}
+
+func TestScopeCmd_Discover_NothingNew(t *testing.T) {
+	tmpDir := chdirTemp(t)
+	initScopedWorkspace(t, tmpDir, []string{"Backend"})
+	require.NoError(t, os.WriteFile(filepath.Join(tmpDir, "docs/adr", "0001-first.md"),
+		[]byte("# 1. First\n\nScope: backend\n\n## Status\n\nAccepted\n"), 0o644))
+
+	buf := new(bytes.Buffer)
+	root := cli.NewRootCmd()
+	root.SetOut(buf)
+	root.SetArgs([]string{"scope", "discover"})
+	require.NoError(t, root.Execute())
+
+	assert.Contains(t, buf.String(), "No new scopes discovered")
+
+	cfg, err := adr.LoadConfig(tmpDir)
+	require.NoError(t, err)
+	assert.Equal(t, []string{"Backend"}, cfg.Scopes)
 }

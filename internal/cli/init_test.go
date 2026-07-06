@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/BobMali/adr-helper/internal/adr"
@@ -407,4 +408,53 @@ func TestInitCmd_TemplateFileNonMdExtension_ReturnsError(t *testing.T) {
 	err := root.Execute()
 	assert.Error(t, err)
 	assert.Contains(t, err.Error(), ".md")
+}
+
+// --- Scope auto-discovery tests ---
+
+func TestInitCmd_DiscoversScopesFromExistingADRs(t *testing.T) {
+	tmpDir := chdirTemp(t)
+	dir := "docs/adr"
+	require.NoError(t, os.MkdirAll(filepath.Join(tmpDir, dir), 0o755))
+	require.NoError(t, os.WriteFile(filepath.Join(tmpDir, dir, "0001-first.md"),
+		[]byte("# 1. First\n\nDate:\n\nScope: Backend, Frontend\n\n## Status\n\nAccepted\n"), 0o644))
+	require.NoError(t, os.WriteFile(filepath.Join(tmpDir, dir, "0002-second.md"),
+		[]byte("# 2. Second\n\nDate:\n\nScope: backend, API\n\n## Status\n\nAccepted\n"), 0o644))
+
+	buf := new(bytes.Buffer)
+	root := cli.NewRootCmd()
+	root.SetOut(buf)
+	root.SetArgs([]string{"init", dir, "-t", "nygard-scoped"})
+	require.NoError(t, root.Execute())
+
+	assert.Contains(t, buf.String(), "Discovered")
+
+	cfg, err := adr.LoadConfig(tmpDir)
+	require.NoError(t, err)
+	// "backend" deduped to canonical "Backend"; order preserved.
+	assert.Equal(t, []string{"Backend", "Frontend", "API"}, cfg.Scopes)
+}
+
+func TestInitCmd_SkipsInvalidDiscoveredScope(t *testing.T) {
+	tmpDir := chdirTemp(t)
+	dir := "docs/adr"
+	require.NoError(t, os.MkdirAll(filepath.Join(tmpDir, dir), 0o755))
+	oversized := strings.Repeat("a", 65) // exceeds MaxScopeLength
+	require.NoError(t, os.WriteFile(filepath.Join(tmpDir, dir, "0001-bad.md"),
+		[]byte("# 1. Bad\n\nScope: "+oversized+"\n\n## Status\n\nAccepted\n"), 0o644))
+	require.NoError(t, os.WriteFile(filepath.Join(tmpDir, dir, "0002-good.md"),
+		[]byte("# 2. Good\n\nScope: Backend\n\n## Status\n\nAccepted\n"), 0o644))
+
+	outBuf, errBuf := new(bytes.Buffer), new(bytes.Buffer)
+	root := cli.NewRootCmd()
+	root.SetOut(outBuf)
+	root.SetErr(errBuf)
+	root.SetArgs([]string{"init", dir, "-t", "nygard-scoped"})
+	require.NoError(t, root.Execute())
+
+	assert.Contains(t, errBuf.String(), "skipped invalid scope")
+
+	cfg, err := adr.LoadConfig(tmpDir)
+	require.NoError(t, err)
+	assert.Equal(t, []string{"Backend"}, cfg.Scopes, "the oversized scope must not be persisted")
 }

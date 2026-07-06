@@ -18,6 +18,7 @@ func NewScopeCmd() *cobra.Command {
 	}
 	cmd.AddCommand(newScopeAddCmd())
 	cmd.AddCommand(newScopeListCmd())
+	cmd.AddCommand(newScopeDiscoverCmd())
 	return cmd
 }
 
@@ -54,6 +55,51 @@ func newScopeAddCmd() *cobra.Command {
 
 			for _, v := range args {
 				fmt.Fprintf(cmd.OutOrStdout(), "Added scope %q\n", strings.TrimSpace(v))
+			}
+			return nil
+		},
+	}
+}
+
+// newScopeDiscoverCmd creates the "scope discover" subcommand, which scans the
+// ADR directory for scopes used in existing ADRs and adds any new ones to the
+// vocabulary.
+func newScopeDiscoverCmd() *cobra.Command {
+	return &cobra.Command{
+		Use:   "discover",
+		Short: "Discover scopes from existing ADRs and add them to the vocabulary",
+		Long: `Scan the ADR directory for "Scope:" values in existing ADRs and add any
+new ones to the vocabulary in .adr.json.
+
+Note: a running web server loads its config once at startup and will not see
+newly-discovered scopes until it is restarted.`,
+		Args: cobra.NoArgs,
+		RunE: func(cmd *cobra.Command, args []string) error {
+			cfg, err := adr.LoadConfig(".")
+			if err != nil {
+				return err
+			}
+
+			added, invalid, err := adr.DiscoverAndMergeScopes(cfg)
+			if err != nil {
+				return err
+			}
+
+			for _, v := range invalid {
+				fmt.Fprintf(cmd.ErrOrStderr(), "warning: skipped invalid scope %q\n", v)
+			}
+
+			if len(added) == 0 {
+				fmt.Fprintln(cmd.OutOrStdout(), "No new scopes discovered")
+				return nil
+			}
+
+			if err := adr.SaveConfig(".", cfg); err != nil {
+				return err
+			}
+
+			for _, v := range added {
+				fmt.Fprintf(cmd.OutOrStdout(), "Added scope %q\n", v)
 			}
 			return nil
 		},
