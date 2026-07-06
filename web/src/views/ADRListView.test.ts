@@ -263,15 +263,37 @@ describe('ADRListView', () => {
       expect(wrapper.find('.text-amber-600').exists()).toBe(true)
     })
 
-    it('red dot/text for other statuses', async () => {
+    it('red dot/text for Rejected', async () => {
       mockedFetchADRs.mockResolvedValue([
-        { number: 1, title: 'A', status: 'Superseded', date: '2025-01-01' },
+        { number: 1, title: 'A', status: 'Rejected', date: '2025-01-01' },
       ])
       const { wrapper } = await mountView()
       await flushPromises()
 
       expect(wrapper.find('.bg-red-500').exists()).toBe(true)
       expect(wrapper.find('.text-red-600').exists()).toBe(true)
+    })
+
+    it('gray dot/text for Deprecated', async () => {
+      mockedFetchADRs.mockResolvedValue([
+        { number: 1, title: 'A', status: 'Deprecated', date: '2025-01-01' },
+      ])
+      const { wrapper } = await mountView()
+      await flushPromises()
+
+      expect(wrapper.find('.bg-gray-500').exists()).toBe(true)
+      expect(wrapper.find('.text-gray-600').exists()).toBe(true)
+    })
+
+    it('sky (light blue) dot/text for Superseded', async () => {
+      mockedFetchADRs.mockResolvedValue([
+        { number: 1, title: 'A', status: 'Superseded', date: '2025-01-01' },
+      ])
+      const { wrapper } = await mountView()
+      await flushPromises()
+
+      expect(wrapper.find('.bg-sky-500').exists()).toBe(true)
+      expect(wrapper.find('.text-sky-600').exists()).toBe(true)
     })
   })
 

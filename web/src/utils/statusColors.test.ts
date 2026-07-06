@@ -13,12 +13,12 @@ describe('statusColorFamily', () => {
     expect(statusColorFamily('Rejected')).toBe('red')
   })
 
-  it('returns "red" for Superseded', () => {
-    expect(statusColorFamily('Superseded')).toBe('red')
+  it('returns "blue" for Superseded', () => {
+    expect(statusColorFamily('Superseded')).toBe('blue')
   })
 
-  it('returns "red" for Deprecated', () => {
-    expect(statusColorFamily('Deprecated')).toBe('red')
+  it('returns "gray" for Deprecated', () => {
+    expect(statusColorFamily('Deprecated')).toBe('gray')
   })
 
   it('is case-insensitive', () => {
@@ -50,8 +50,16 @@ describe('statusTextClass', () => {
     expect(statusTextClass('Proposed')).toBe('text-amber-600 dark:text-amber-400')
   })
 
-  it('returns red text for other statuses', () => {
-    expect(statusTextClass('Superseded')).toBe('text-red-600 dark:text-red-400')
+  it('returns red text for Rejected', () => {
+    expect(statusTextClass('Rejected')).toBe('text-red-600 dark:text-red-400')
+  })
+
+  it('returns gray text for Deprecated', () => {
+    expect(statusTextClass('Deprecated')).toBe('text-gray-600 dark:text-gray-400')
+  })
+
+  it('returns sky text for Superseded', () => {
+    expect(statusTextClass('Superseded')).toBe('text-sky-600 dark:text-sky-400')
   })
 })
 
@@ -66,5 +74,23 @@ describe('chipBgClass', () => {
 
   it('returns red chip for Rejected', () => {
     expect(chipBgClass('Rejected')).toBe('bg-red-700 hover:bg-red-800')
+  })
+
+  it('returns gray chip for Deprecated', () => {
+    expect(chipBgClass('Deprecated')).toBe('bg-gray-600 hover:bg-gray-700')
+  })
+
+  it('returns sky chip for Superseded', () => {
+    expect(chipBgClass('Superseded')).toBe('bg-sky-600 hover:bg-sky-700')
+  })
+})
+
+describe('statusDotClass (new families)', () => {
+  it('returns gray dot for Deprecated', () => {
+    expect(statusDotClass('Deprecated')).toBe('bg-gray-500')
+  })
+
+  it('returns sky dot for Superseded', () => {
+    expect(statusDotClass('Superseded')).toBe('bg-sky-500')
   })
 })
