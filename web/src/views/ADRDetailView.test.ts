@@ -1,3 +1,7 @@
+// @vitest-environment jsdom
+// This view sanitizes rendered markdown with DOMPurify, which mis-sanitizes
+// under happy-dom (dompurify 3.4.11 strips headings and leaks <script>).
+// jsdom is DOMPurify's reference DOM and sanitizes correctly.
 import { mount, flushPromises } from '@vue/test-utils'
 import { createRouter, createMemoryHistory } from 'vue-router'
 import { nextTick } from 'vue'
