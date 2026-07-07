@@ -97,6 +97,7 @@ onMounted(() => {
 </script>
 
 <template>
+  <div class="flex flex-col h-full">
   <header class="mb-8 flex items-center justify-between">
     <h1 class="text-2xl font-semibold tracking-tight">Architecture Decision Records</h1>
     <RouterLink
@@ -193,7 +194,7 @@ onMounted(() => {
   </div>
 
   <!-- ADR list -->
-  <ul v-else aria-live="polite" class="divide-y divide-gray-200 dark:divide-gray-800 border-t border-b border-gray-200 dark:border-gray-800">
+  <ul v-else aria-live="polite" tabindex="0" role="region" aria-label="ADR list" class="flex-1 min-h-0 overflow-y-auto divide-y divide-gray-200 dark:divide-gray-800 border-t border-b border-gray-200 dark:border-gray-800">
     <li
       v-for="adr in sortedADRs"
       :key="adr.number"
@@ -234,5 +235,6 @@ onMounted(() => {
   <!-- Screen reader count announcement (outside v-if chain) -->
   <div v-if="!loading && !error && adrs.length > 0" class="sr-only" role="status" aria-live="polite" aria-atomic="true">
     {{ sortedADRs.length }} record{{ sortedADRs.length !== 1 ? 's' : '' }} shown
+  </div>
   </div>
 </template>

@@ -32,13 +32,15 @@ describe('App', () => {
     expect(main.text()).toContain('Home stub')
   })
 
-  it('has layout wrapper with min-h-screen and max-w-4xl', async () => {
+  it('has a viewport-height layout with a scrollable main and max-w-4xl content', async () => {
     const router = makeRouter()
     router.push('/')
     await router.isReady()
 
     const wrapper = mount(App, { global: { plugins: [router] } })
-    expect(wrapper.find('.min-h-screen').exists()).toBe(true)
+    // Root is a fixed-height flex column so only <main> scrolls, not the document.
+    expect(wrapper.find('.h-dvh').exists()).toBe(true)
+    expect(wrapper.find('main.overflow-y-auto').exists()).toBe(true)
     expect(wrapper.find('.max-w-4xl').exists()).toBe(true)
   })
 })

@@ -177,6 +177,17 @@ describe('ADRListView', () => {
       expect(hrefs).toContain('/adr/1')
       expect(hrefs).toContain('/adr/2')
     })
+
+    it('renders the list as a keyboard-accessible scroll region', async () => {
+      const { wrapper } = await mountView()
+      await flushPromises()
+
+      const list = wrapper.find('ul')
+      expect(list.classes()).toContain('overflow-y-auto')
+      expect(list.attributes('role')).toBe('region')
+      expect(list.attributes('tabindex')).toBe('0')
+      expect(list.attributes('aria-label')).toBe('ADR list')
+    })
   })
 
   describe('search', () => {
