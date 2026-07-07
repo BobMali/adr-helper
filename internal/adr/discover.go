@@ -25,7 +25,7 @@ func ExtractScope(content string) (string, bool) {
 // through Config.MergeScopes before use. A missing directory yields (nil, nil)
 // rather than an error; unreadable individual files are skipped.
 func DiscoverScopes(dir string) ([]string, error) {
-	entries, err := os.ReadDir(dir)
+	files, err := listADRFiles(dir)
 	if err != nil {
 		if os.IsNotExist(err) {
 			return nil, nil
@@ -34,11 +34,8 @@ func DiscoverScopes(dir string) ([]string, error) {
 	}
 
 	var tokens []string
-	for _, entry := range entries {
-		if entry.IsDir() || !IsADRFilename(entry.Name()) {
-			continue
-		}
-		content, err := os.ReadFile(filepath.Join(dir, entry.Name()))
+	for _, f := range files {
+		content, err := os.ReadFile(filepath.Join(dir, f.Name))
 		if err != nil {
 			continue // best-effort: skip files we can't read
 		}

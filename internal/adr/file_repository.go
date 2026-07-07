@@ -7,7 +7,6 @@ import (
 	"os"
 	"path/filepath"
 	"sort"
-	"strconv"
 )
 
 // FileRepository implements Repository by reading ADR markdown files from a directory.
@@ -21,29 +20,20 @@ func NewFileRepository(dir string) *FileRepository {
 }
 
 func (r *FileRepository) List(_ context.Context) ([]ADR, error) {
-	entries, err := os.ReadDir(r.dir)
+	files, err := listADRFiles(r.dir)
 	if err != nil {
 		return nil, fmt.Errorf("reading directory %q: %w", r.dir, err)
 	}
 
 	var adrs []ADR
-	for _, entry := range entries {
-		if entry.IsDir() {
-			continue
-		}
-		matches := adrFilePattern.FindStringSubmatch(entry.Name())
-		if matches == nil {
-			continue
-		}
-		fileNumber, _ := strconv.Atoi(matches[1])
-
-		content, err := os.ReadFile(filepath.Join(r.dir, entry.Name()))
+	for _, f := range files {
+		content, err := os.ReadFile(filepath.Join(r.dir, f.Name))
 		if err != nil {
 			continue
 		}
 
 		meta := ExtractMetadata(string(content))
-		record, err := MetadataToADR(meta, fileNumber)
+		record, err := MetadataToADR(meta, f.Number)
 		if err != nil {
 			continue
 		}
