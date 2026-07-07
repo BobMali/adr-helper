@@ -36,6 +36,9 @@ const scopedSections: TemplateSectionDef[] = [
   { key: 'consequences', heading: 'Consequences', kind: 'h2', optional: false, placeholder: 'What becomes harder?' },
 ]
 
+// A vocabulary larger than SCOPE_FILTER_THRESHOLD (8) to exercise filter/scroll.
+const manyScopes = ['Backend', 'Frontend', 'API', 'Database', 'Infra', 'Auth', 'UI', 'CLI', 'Web']
+
 function makeRouter() {
   return createRouter({
     history: createMemoryHistory(),
@@ -389,5 +392,151 @@ describe('ADRCreateView', () => {
 
       expect(mockedCreateADR).not.toHaveBeenCalled()
       expect(wrapper.text()).toContain('Scope is required')
+    })
+
+    it('hides the filter for small vocabularies and shows it for large ones', async () => {
+      mockedFetchScopes.mockResolvedValue(['Backend', 'Frontend'])
+      const small = await mountView()
+      await flushPromises()
+      expect(small.wrapper.find('input[aria-label="Filter scopes"]').exists()).toBe(false)
+
+      mockedFetchScopes.mockResolvedValue(manyScopes)
+      const large = await mountView()
+      await flushPromises()
+      expect(large.wrapper.find('input[aria-label="Filter scopes"]').exists()).toBe(true)
+    })
+
+    it('filters the checkbox list and shows a no-match hint', async () => {
+      mockedFetchScopes.mockResolvedValue(manyScopes)
+      const { wrapper } = await mountView()
+      await flushPromises()
+
+      await wrapper.find('input[aria-label="Filter scopes"]').setValue('a')
+      const boxes = wrapper.findAll('input[type="checkbox"]')
+      expect(boxes.length).toBeLessThan(manyScopes.length)
+      boxes.forEach((b) =>
+        expect((b.element as HTMLInputElement).value.toLowerCase()).toContain('a'),
+      )
+
+      await wrapper.find('input[aria-label="Filter scopes"]').setValue('zzz')
+      expect(wrapper.findAll('input[type="checkbox"]')).toHaveLength(0)
+      expect(wrapper.text()).toContain('No scopes match')
+    })
+
+    it('keeps a filtered-out selection in the submit payload', async () => {
+      mockedFetchScopes.mockResolvedValue(manyScopes)
+      mockedCreateADR.mockResolvedValue({ number: 1, title: 'T', status: 'Proposed', date: '2026-03-02', content: '' })
+      const { wrapper } = await mountView()
+      await flushPromises()
+
+      const backend = wrapper
+        .findAll('input[type="checkbox"]')
+        .find((b) => (b.element as HTMLInputElement).value === 'Backend')!
+      await backend.setValue(true)
+      await wrapper.find('input[aria-label="Filter scopes"]').setValue('front') // hides Backend
+      expect(
+        wrapper
+          .findAll('input[type="checkbox"]')
+          .some((b) => (b.element as HTMLInputElement).value === 'Backend'),
+      ).toBe(false)
+
+      await wrapper.find('#adr-title').setValue('T')
+      await wrapper.find('#section-context').setValue('ctx')
+      await wrapper.find('#section-decision').setValue('dec')
+      await wrapper.find('#section-consequences').setValue('con')
+      await wrapper.find('form').trigger('submit')
+      await flushPromises()
+
+      expect(mockedCreateADR).toHaveBeenCalledWith({
+        title: 'T',
+        sections: { scope: 'Backend', context: 'ctx', decision: 'dec', consequences: 'con' },
+      })
+    })
+
+    it('shows a selected count with a hidden-by-filter breakdown', async () => {
+      mockedFetchScopes.mockResolvedValue(manyScopes)
+      const { wrapper } = await mountView()
+      await flushPromises()
+
+      const boxes = wrapper.findAll('input[type="checkbox"]')
+      await boxes.find((b) => (b.element as HTMLInputElement).value === 'Backend')!.setValue(true)
+      await boxes.find((b) => (b.element as HTMLInputElement).value === 'Frontend')!.setValue(true)
+      expect(wrapper.text()).toContain('2 selected')
+
+      await wrapper.find('input[aria-label="Filter scopes"]').setValue('database') // hides both
+      expect(wrapper.text()).toContain('2 selected')
+      expect(wrapper.text()).toContain('2 hidden by filter')
+    })
+
+    it('clears all selections and blocks submit', async () => {
+      mockedFetchScopes.mockResolvedValue(manyScopes)
+      const { wrapper } = await mountView()
+      await flushPromises()
+      mockedCreateADR.mockClear()
+
+      const boxes = wrapper.findAll('input[type="checkbox"]')
+      await boxes[0].setValue(true)
+      await boxes[1].setValue(true)
+      expect(wrapper.text()).toContain('2 selected')
+
+      await wrapper.findAll('button').find((b) => b.text() === 'Clear all')!.trigger('click')
+      expect(wrapper.text()).not.toContain('2 selected')
+
+      await wrapper.find('#adr-title').setValue('T')
+      await wrapper.find('#section-context').setValue('ctx')
+      await wrapper.find('#section-decision').setValue('dec')
+      await wrapper.find('#section-consequences').setValue('con')
+      await wrapper.find('form').trigger('submit')
+      await flushPromises()
+
+      expect(mockedCreateADR).not.toHaveBeenCalled()
+      expect(wrapper.text()).toContain('Scope is required')
+    })
+
+    it('clears the filter after adding a scope', async () => {
+      mockedFetchScopes.mockResolvedValue(manyScopes)
+      mockedAddScope.mockResolvedValue([...manyScopes, 'Payments'])
+      const { wrapper } = await mountView()
+      await flushPromises()
+
+      await wrapper.find('input[aria-label="Filter scopes"]').setValue('back') // excludes "Payments"
+      await wrapper.find('input[aria-label="Add a new scope"]').setValue('Payments')
+      await wrapper.findAll('button').find((b) => b.text() === 'Add')!.trigger('click')
+      await flushPromises()
+
+      expect((wrapper.find('input[aria-label="Filter scopes"]').element as HTMLInputElement).value).toBe('')
+      const payments = wrapper
+        .findAll('input[type="checkbox"]')
+        .find((b) => (b.element as HTMLInputElement).value === 'Payments')
+      expect(payments).toBeTruthy()
+      expect((payments!.element as HTMLInputElement).checked).toBe(true)
+    })
+
+    it('does not reset the filter on a failed submit', async () => {
+      mockedFetchScopes.mockResolvedValue(manyScopes)
+      const { wrapper } = await mountView()
+      await flushPromises()
+      mockedCreateADR.mockClear()
+
+      await wrapper.find('input[aria-label="Filter scopes"]').setValue('back')
+      await wrapper.find('form').trigger('submit') // missing required fields
+      await flushPromises()
+
+      expect(mockedCreateADR).not.toHaveBeenCalled()
+      expect((wrapper.find('input[aria-label="Filter scopes"]').element as HTMLInputElement).value).toBe('back')
+    })
+
+    it('does not submit the form when Enter is pressed in the filter', async () => {
+      mockedFetchScopes.mockResolvedValue(manyScopes)
+      const { wrapper } = await mountView()
+      await flushPromises()
+      mockedCreateADR.mockClear()
+
+      const filter = wrapper.find('input[aria-label="Filter scopes"]')
+      await filter.setValue('back')
+      await filter.trigger('keydown.enter')
+      await flushPromises()
+
+      expect(mockedCreateADR).not.toHaveBeenCalled()
     })
   })

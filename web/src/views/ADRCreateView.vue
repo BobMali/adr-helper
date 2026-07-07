@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, onMounted, nextTick } from 'vue'
+import { ref, onMounted, nextTick, computed } from 'vue'
 import { RouterLink, useRouter } from 'vue-router'
 import { fetchConfig, fetchTemplateSections, fetchScopes, addScope } from '../api'
 import { useCreateADR } from '../composables/useCreateADR'
@@ -14,12 +14,22 @@ const configLoading = ref(true)
 const configError = ref('')
 const titleInputRef = ref<HTMLInputElement | null>(null)
 
+// Above this many scopes, the checkbox list gets a scroll cap and a filter input.
+const SCOPE_FILTER_THRESHOLD = 8
+
 // Scope vocabulary state (used by fields with def.vocabulary).
 const scopeOptions = ref<string[]>([])
 const scopeSelection = ref<Record<string, string[]>>({})
 const newScope = ref('')
 const scopeAddError = ref('')
 const addingScope = ref(false)
+// scopeFilter/scopeOptions are shared across all vocabulary fields; only one
+// exists today (see def.vocabulary).
+const scopeFilter = ref('')
+const filteredScopeOptions = computed(() => {
+  const q = scopeFilter.value.trim().toLowerCase()
+  return q ? scopeOptions.value.filter((s) => s.toLowerCase().includes(q)) : scopeOptions.value
+})
 
 async function loadForm() {
   const [config, templateSections, scopes] = await Promise.all([
@@ -45,11 +55,24 @@ onMounted(async () => {
   }
 })
 
-function toggleScope(key: string, value: string, checked: boolean) {
-  const current = scopeSelection.value[key] ?? []
-  const next = checked ? [...current, value] : current.filter((v) => v !== value)
+function setScopeSelection(key: string, next: string[]) {
   scopeSelection.value[key] = next
   sections.value[key] = next.join(', ')
+}
+
+function toggleScope(key: string, value: string, checked: boolean) {
+  const current = scopeSelection.value[key] ?? []
+  setScopeSelection(key, checked ? [...current, value] : current.filter((v) => v !== value))
+}
+
+function clearScopes(key: string) {
+  setScopeSelection(key, [])
+}
+
+// Selected scopes not currently visible under the active filter.
+function hiddenSelectedCount(key: string): number {
+  const visible = new Set(filteredScopeOptions.value)
+  return (scopeSelection.value[key] ?? []).filter((s) => !visible.has(s)).length
 }
 
 async function handleAddScope(key: string) {
@@ -66,6 +89,8 @@ async function handleAddScope(key: string) {
       toggleScope(key, canonical, true)
     }
     newScope.value = ''
+    // Clear any active filter so the just-added (auto-checked) scope is visible.
+    scopeFilter.value = ''
   } catch (e) {
     scopeAddError.value = e instanceof Error ? e.message : 'Failed to add scope'
   } finally {
@@ -201,23 +226,73 @@ function retryLoad() {
           <p v-if="scopeOptions.length === 0" class="text-sm text-gray-500 dark:text-gray-400 mb-2">
             No scopes yet &mdash; add one below.
           </p>
-          <div v-else class="flex flex-wrap gap-x-4 gap-y-2 mb-3">
-            <label
-              v-for="opt in scopeOptions"
-              :key="opt"
-              class="inline-flex items-center gap-2 text-sm text-gray-700 dark:text-gray-300"
+          <template v-else>
+            <!-- Filter (large vocabularies only) -->
+            <input
+              v-if="scopeOptions.length > SCOPE_FILTER_THRESHOLD"
+              v-model="scopeFilter"
+              type="text"
+              :aria-label="`Filter ${def.heading.toLowerCase()}s`"
+              placeholder="Filter scopes&hellip;"
+              :disabled="submitting"
+              class="w-full mb-2 py-2 px-3 rounded-lg border border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-900 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 disabled:opacity-50"
+              @keydown.enter.prevent
+            />
+            <div v-if="scopeOptions.length > SCOPE_FILTER_THRESHOLD" class="sr-only" aria-live="polite">
+              {{ scopeFilter.trim() ? `${filteredScopeOptions.length} of ${scopeOptions.length} scopes shown` : '' }}
+            </div>
+
+            <!-- Checkbox list (scroll-capped above the threshold) -->
+            <p
+              v-if="filteredScopeOptions.length === 0"
+              class="text-sm text-gray-500 dark:text-gray-400 mb-3"
             >
-              <input
-                type="checkbox"
-                :value="opt"
-                :checked="(scopeSelection[def.key] ?? []).includes(opt)"
+              No scopes match "{{ scopeFilter }}".
+            </p>
+            <div
+              v-else
+              class="flex flex-wrap gap-x-4 gap-y-2 mb-3"
+              :class="scopeOptions.length > SCOPE_FILTER_THRESHOLD
+                ? 'max-h-40 overflow-y-auto rounded border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900 p-2'
+                : ''"
+            >
+              <label
+                v-for="opt in filteredScopeOptions"
+                :key="opt"
+                class="inline-flex items-center gap-2 text-sm text-gray-700 dark:text-gray-300"
+              >
+                <input
+                  type="checkbox"
+                  :value="opt"
+                  :checked="(scopeSelection[def.key] ?? []).includes(opt)"
+                  :disabled="submitting"
+                  class="rounded border-gray-300 dark:border-gray-700 text-blue-600 focus:ring-blue-500"
+                  @change="toggleScope(def.key, opt, ($event.target as HTMLInputElement).checked)"
+                />
+                {{ opt }}
+              </label>
+            </div>
+
+            <!-- Selection summary + clear-all -->
+            <div
+              v-if="(scopeSelection[def.key] ?? []).length > 0"
+              class="flex items-center gap-2 mb-3 text-sm text-gray-500 dark:text-gray-400"
+            >
+              <span>
+                {{ (scopeSelection[def.key] ?? []).length }} selected<template
+                  v-if="hiddenSelectedCount(def.key) > 0"
+                > &middot; {{ hiddenSelectedCount(def.key) }} hidden by filter</template>
+              </span>
+              <button
+                type="button"
                 :disabled="submitting"
-                class="rounded border-gray-300 dark:border-gray-700 text-blue-600 focus:ring-blue-500"
-                @change="toggleScope(def.key, opt, ($event.target as HTMLInputElement).checked)"
-              />
-              {{ opt }}
-            </label>
-          </div>
+                class="px-2 py-1 text-xs rounded border border-gray-300 dark:border-gray-700 text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-800 disabled:opacity-50 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-blue-500"
+                @click="clearScopes(def.key)"
+              >
+                Clear all
+              </button>
+            </div>
+          </template>
           <div class="flex items-center gap-2">
             <input
               v-model="newScope"
