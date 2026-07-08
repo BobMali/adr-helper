@@ -1203,3 +1203,90 @@ func TestCreateADR_ScopedTemplate_RendersScopeLine(t *testing.T) {
 	assert.Contains(t, repo.savedADR.Content, "Scope: Backend, API")
 	assert.Contains(t, repo.savedADR.Content, "ctx")
 }
+
+// --- metadata (meta field + facets) ---
+
+func TestListADRs_IncludesMeta(t *testing.T) {
+	repo := &mockRepo{adrs: []adr.ADR{
+		{Number: 1, Title: "Scoped", Status: adr.Accepted, Meta: map[string][]string{"scope": {"backend", "api"}}},
+		{Number: 2, Title: "Plain", Status: adr.Proposed},
+	}}
+	srv := web.NewServer(repo)
+
+	req := httptest.NewRequest(http.MethodGet, "/api/adr", nil)
+	rec := httptest.NewRecorder()
+	srv.Handler().ServeHTTP(rec, req)
+
+	assert.Equal(t, http.StatusOK, rec.Code)
+	var body []map[string]interface{}
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &body))
+	require.Len(t, body, 2)
+	meta, ok := body[0]["meta"].(map[string]interface{})
+	require.True(t, ok, "list item should carry meta")
+	assert.Equal(t, []interface{}{"backend", "api"}, meta["scope"])
+	_, hasMeta := body[1]["meta"]
+	assert.False(t, hasMeta, "ADR without metadata omits meta (omitempty)")
+}
+
+func TestGetADR_IncludesMeta(t *testing.T) {
+	repo := &mockRepo{getADR: &adr.ADR{
+		Number: 1, Title: "Scoped", Status: adr.Accepted,
+		Content: "# 1. Scoped\n\nScope: backend\n",
+		Meta:    map[string][]string{"scope": {"backend"}},
+	}}
+	srv := web.NewServer(repo)
+
+	req := httptest.NewRequest(http.MethodGet, "/api/adr/1", nil)
+	rec := httptest.NewRecorder()
+	srv.Handler().ServeHTTP(rec, req)
+
+	assert.Equal(t, http.StatusOK, rec.Code)
+	var body map[string]interface{}
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &body))
+	meta, ok := body["meta"].(map[string]interface{})
+	require.True(t, ok, "detail should carry meta")
+	assert.Equal(t, []interface{}{"backend"}, meta["scope"])
+}
+
+func TestGetMetaFields_ReturnsFacetsWithVocabularyValues(t *testing.T) {
+	store := &mockScopeStore{scopes: []string{"backend", "api"}}
+	srv := web.NewServer(nil, web.WithScopeStore(store))
+
+	req := httptest.NewRequest(http.MethodGet, "/api/meta-fields", nil)
+	rec := httptest.NewRecorder()
+	srv.Handler().ServeHTTP(rec, req)
+
+	assert.Equal(t, http.StatusOK, rec.Code)
+	var fields []map[string]interface{}
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &fields))
+
+	var scope map[string]interface{}
+	for _, f := range fields {
+		if f["key"] == "scope" {
+			scope = f
+		}
+	}
+	require.NotNil(t, scope, "scope facet must be present")
+	assert.Equal(t, "Scope", scope["heading"])
+	assert.Equal(t, true, scope["vocabulary"])
+	assert.Equal(t, []interface{}{"backend", "api"}, scope["values"])
+}
+
+func TestGetMetaFields_NoScopeStore_GracefulEmptyValues(t *testing.T) {
+	srv := web.NewServer(nil) // no scope store
+
+	req := httptest.NewRequest(http.MethodGet, "/api/meta-fields", nil)
+	rec := httptest.NewRecorder()
+	srv.Handler().ServeHTTP(rec, req)
+
+	assert.Equal(t, http.StatusOK, rec.Code)
+	var fields []map[string]interface{}
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &fields))
+	require.NotEmpty(t, fields, "facets are returned even without a scope store")
+	for _, f := range fields {
+		if f["key"] == "scope" {
+			_, hasValues := f["values"]
+			assert.False(t, hasValues, "no scope store -> no values (omitempty)")
+		}
+	}
+}

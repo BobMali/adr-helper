@@ -1,4 +1,4 @@
-import type { ADRSummary, ADRDetail, CreateADRPayload, TemplateSectionDef } from './types'
+import type { ADRSummary, ADRDetail, CreateADRPayload, TemplateSectionDef, MetaField } from './types'
 
 async function apiFetch(url: string, init?: RequestInit): Promise<Response> {
   try {
@@ -93,6 +93,14 @@ export async function fetchTemplateSections(): Promise<TemplateSectionDef[]> {
   const res = await apiFetch('/api/template-sections')
   if (!res.ok) {
     throw new Error(`Failed to fetch template sections: ${res.status}`)
+  }
+  return res.json()
+}
+
+export async function fetchMetaFields(): Promise<MetaField[]> {
+  const res = await apiFetch('/api/meta-fields')
+  if (!res.ok) {
+    throw new Error(`Failed to fetch meta fields: ${res.status}`)
   }
   return res.json()
 }

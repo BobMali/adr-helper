@@ -128,6 +128,7 @@ func NewServer(repo adr.Repository, opts ...ServerOption) *Server {
 	r.Get("/health", s.handleHealth)
 	r.Get("/api/config", s.handleGetConfig)
 	r.Get("/api/template-sections", s.handleGetTemplateSections)
+	r.Get("/api/meta-fields", s.handleGetMetaFields)
 	r.Get("/api/scopes", s.handleGetScopes)
 	r.Post("/api/scopes", s.handleAddScope)
 	r.Get("/api/adr", s.handleListADRs)
@@ -156,18 +157,20 @@ func (s *Server) ListenAndServe(addr string) error {
 }
 
 type adrResponse struct {
-	Number int        `json:"number"`
-	Title  string     `json:"title"`
-	Status adr.Status `json:"status"`
-	Date   string     `json:"date"`
+	Number int                 `json:"number"`
+	Title  string              `json:"title"`
+	Status adr.Status          `json:"status"`
+	Date   string              `json:"date"`
+	Meta   map[string][]string `json:"meta,omitempty"`
 }
 
 type adrDetailResponse struct {
-	Number  int        `json:"number"`
-	Title   string     `json:"title"`
-	Status  adr.Status `json:"status"`
-	Date    string     `json:"date"`
-	Content string     `json:"content"`
+	Number  int                 `json:"number"`
+	Title   string              `json:"title"`
+	Status  adr.Status          `json:"status"`
+	Date    string              `json:"date"`
+	Content string              `json:"content"`
+	Meta    map[string][]string `json:"meta,omitempty"`
 }
 
 func toResponse(a adr.ADR) adrResponse {
@@ -180,6 +183,7 @@ func toResponse(a adr.ADR) adrResponse {
 		Title:  a.Title,
 		Status: a.Status,
 		Date:   dateStr,
+		Meta:   a.Meta,
 	}
 }
 
@@ -194,7 +198,17 @@ func toDetailResponse(a adr.ADR) adrDetailResponse {
 		Status:  a.Status,
 		Date:    dateStr,
 		Content: a.Content,
+		Meta:    a.Meta,
 	}
+}
+
+// metaFieldResponse describes a filterable metadata field (facet). Values is
+// populated for vocabulary facets from the project's scope store.
+type metaFieldResponse struct {
+	Key        string   `json:"key"`
+	Heading    string   `json:"heading"`
+	Vocabulary bool     `json:"vocabulary,omitempty"`
+	Values     []string `json:"values,omitempty"`
 }
 
 func (s *Server) handleListADRs(w http.ResponseWriter, r *http.Request) {
@@ -419,6 +433,27 @@ func (s *Server) handleGetTemplateSections(w http.ResponseWriter, r *http.Reques
 
 	w.Header().Set("Content-Type", "application/json")
 	if err := json.NewEncoder(w).Encode(sections); err != nil {
+		http.Error(w, "failed to encode response", http.StatusInternalServerError)
+	}
+}
+
+func (s *Server) handleGetMetaFields(w http.ResponseWriter, r *http.Request) {
+	defs := adr.AllMetaFieldDefs()
+	resp := make([]metaFieldResponse, 0, len(defs))
+	for _, d := range defs {
+		mf := metaFieldResponse{Key: d.Key, Heading: d.Heading, Vocabulary: d.Vocabulary}
+		// Today the only vocabulary source is the scope store; a nil store (e.g. in
+		// tests) leaves Values empty rather than panicking.
+		if d.Vocabulary && s.scopeStore != nil {
+			if vals := s.scopeStore.Scopes(); len(vals) > 0 {
+				mf.Values = vals
+			}
+		}
+		resp = append(resp, mf)
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	if err := json.NewEncoder(w).Encode(resp); err != nil {
 		http.Error(w, "failed to encode response", http.StatusInternalServerError)
 	}
 }

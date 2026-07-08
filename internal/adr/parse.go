@@ -13,6 +13,9 @@ type Metadata struct {
 	Title  string
 	Status string
 	Date   string
+	// Meta holds recognized metadata field values keyed by field key, each a
+	// comma-split list of trimmed tokens (see ExtractMetaFields).
+	Meta map[string][]string
 }
 
 var numberedHeadingPattern = regexp.MustCompile(`(?m)^# (\d+)\.\s+(.+)$`)
@@ -55,6 +58,9 @@ func ExtractMetadata(content string) Metadata {
 		}
 	}
 
+	// Recognized metadata fields (scope, frontmatter fields, …) for filtering/display.
+	m.Meta = ExtractMetaFields(content)
+
 	return m
 }
 
@@ -94,6 +100,7 @@ func MetadataToADR(m Metadata, fallbackNumber int) (ADR, error) {
 		Title:  m.Title,
 		Status: status,
 		Date:   date,
+		Meta:   m.Meta,
 	}, nil
 }
 

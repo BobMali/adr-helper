@@ -110,6 +110,29 @@ func TestFileRepository_Get_PopulatesContent(t *testing.T) {
 	assert.Equal(t, raw, record.Content)
 }
 
+func TestFileRepository_List_PopulatesMeta(t *testing.T) {
+	dir := t.TempDir()
+	writeFile(t, dir, "0001-scoped.md", "# 1. Scoped\n\nScope: backend, api\n\n## Status\n\nAccepted\n")
+
+	repo := NewFileRepository(dir)
+	adrs, err := repo.List(context.Background())
+
+	require.NoError(t, err)
+	require.Len(t, adrs, 1)
+	assert.Equal(t, []string{"backend", "api"}, adrs[0].Meta["scope"])
+}
+
+func TestFileRepository_Get_PopulatesMeta(t *testing.T) {
+	dir := t.TempDir()
+	writeFile(t, dir, "0001-scoped.md", "# 1. Scoped\n\nScope: backend\n\n## Status\n\nAccepted\n")
+
+	repo := NewFileRepository(dir)
+	record, err := repo.Get(context.Background(), 1)
+
+	require.NoError(t, err)
+	assert.Equal(t, []string{"backend"}, record.Meta["scope"])
+}
+
 func TestFileRepository_Get_NotFound(t *testing.T) {
 	dir := t.TempDir()
 

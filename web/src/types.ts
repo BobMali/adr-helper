@@ -3,6 +3,7 @@ export interface ADRSummary {
   title: string
   status: string
   date: string
+  meta?: Record<string, string[]>
 }
 
 export interface ADRDetail extends ADRSummary {
@@ -25,3 +26,15 @@ export interface TemplateSectionDef {
 
 export type SortField = 'number' | 'title' | 'status'
 export type SortDirection = 'asc' | 'desc'
+
+// How multiple selected values within one metadata facet combine.
+export type MetaMatchMode = 'any' | 'all'
+
+// A filterable metadata field (facet). For vocabulary facets, `values` holds the
+// project vocabulary (the chip options).
+export interface MetaField {
+  key: string
+  heading: string
+  vocabulary?: boolean
+  values?: string[]
+}

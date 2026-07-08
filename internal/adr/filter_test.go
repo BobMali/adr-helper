@@ -106,3 +106,55 @@ func TestFilterByQuery_NoDuplicateWhenBothTitleAndNumberMatch(t *testing.T) {
 	result := FilterByQuery(records, "12")
 	assert.Len(t, result, 1)
 }
+
+// --- FilterByMetaField ---
+
+func metaRecords() []ADR {
+	return []ADR{
+		{Number: 1, Title: "A", Meta: map[string][]string{"scope": {"backend", "api"}}},
+		{Number: 2, Title: "B", Meta: map[string][]string{"scope": {"web"}}},
+		{Number: 3, Title: "C", Meta: map[string][]string{"scope": {"backend"}}},
+		{Number: 4, Title: "D"}, // no scope
+	}
+}
+
+func numbersOf(records []ADR) []int {
+	nums := make([]int, len(records))
+	for i, r := range records {
+		nums[i] = r.Number
+	}
+	return nums
+}
+
+func TestFilterByMetaField_EmptyValuesIsNoOp(t *testing.T) {
+	records := metaRecords()
+	assert.Equal(t, records, FilterByMetaField(records, "scope", nil, false))
+	assert.Equal(t, records, FilterByMetaField(records, "scope", []string{"  "}, true))
+}
+
+func TestFilterByMetaField_AnyUnion(t *testing.T) {
+	result := FilterByMetaField(metaRecords(), "scope", []string{"backend", "web"}, false)
+	assert.Equal(t, []int{1, 2, 3}, numbersOf(result))
+}
+
+func TestFilterByMetaField_AllIntersection(t *testing.T) {
+	result := FilterByMetaField(metaRecords(), "scope", []string{"backend", "api"}, true)
+	assert.Equal(t, []int{1}, numbersOf(result))
+}
+
+func TestFilterByMetaField_CaseInsensitive(t *testing.T) {
+	result := FilterByMetaField(metaRecords(), "scope", []string{"BACKEND"}, false)
+	assert.Equal(t, []int{1, 3}, numbersOf(result))
+}
+
+func TestFilterByMetaField_RecordsWithoutFieldExcluded(t *testing.T) {
+	result := FilterByMetaField(metaRecords(), "scope", []string{"backend"}, false)
+	for _, r := range result {
+		assert.NotEqual(t, 4, r.Number, "scope-less ADR must not match a scope filter")
+	}
+}
+
+func TestFilterByMetaField_UnknownValueYieldsEmpty(t *testing.T) {
+	result := FilterByMetaField(metaRecords(), "scope", []string{"nope"}, false)
+	assert.Empty(t, result)
+}

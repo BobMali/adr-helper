@@ -3,7 +3,7 @@ import { mount, flushPromises } from '@vue/test-utils'
 import { createRouter, createMemoryHistory } from 'vue-router'
 import { defineComponent } from 'vue'
 import { useURLSync } from './useURLSync'
-import type { SortField, SortDirection } from '../types'
+import type { SortField, SortDirection, MetaMatchMode } from '../types'
 
 function makeRouter() {
   return createRouter({
@@ -14,55 +14,31 @@ function makeRouter() {
   })
 }
 
-function mountWithURLSync(initialPath = '/') {
-  const router = makeRouter()
-  router.push(initialPath)
-
-  const searchQuery = ref('')
-  const selectedStatuses = ref<Set<string>>(new Set())
-  const sortField = ref<SortField>('number')
-  const sortDirection = ref<SortDirection>('asc')
-
-  let urlSync!: ReturnType<typeof useURLSync>
-
-  const wrapper = mount(
-    defineComponent({
-      setup() {
-        urlSync = useURLSync(searchQuery, selectedStatuses, sortField, sortDirection)
-        return () => null
-      },
-    }),
-    { global: { plugins: [router] } },
-  )
-
-  return { wrapper, router, searchQuery, selectedStatuses, sortField, sortDirection, urlSync: () => urlSync }
-}
-
 async function mountReady(initialPath = '/') {
-  const result = mountWithURLSync(initialPath)
-  const router = result.router
+  const router = makeRouter()
   router.push(initialPath)
   await router.isReady()
 
-  // Re-mount with ready router
   const searchQuery = ref('')
   const selectedStatuses = ref<Set<string>>(new Set())
   const sortField = ref<SortField>('number')
   const sortDirection = ref<SortDirection>('asc')
+  const selectedMeta = ref<Record<string, Set<string>>>({})
+  const matchMode = ref<MetaMatchMode>('any')
 
   let urlSync!: ReturnType<typeof useURLSync>
 
   const wrapper = mount(
     defineComponent({
       setup() {
-        urlSync = useURLSync(searchQuery, selectedStatuses, sortField, sortDirection)
+        urlSync = useURLSync({ searchQuery, selectedStatuses, sortField, sortDirection, selectedMeta, matchMode })
         return () => null
       },
     }),
     { global: { plugins: [router] } },
   )
 
-  return { wrapper, router, searchQuery, selectedStatuses, sortField, sortDirection, urlSync: () => urlSync }
+  return { wrapper, router, searchQuery, selectedStatuses, sortField, sortDirection, selectedMeta, matchMode, urlSync: () => urlSync }
 }
 
 describe('useURLSync', () => {
@@ -101,6 +77,37 @@ describe('useURLSync', () => {
       const { sortDirection, urlSync } = await mountReady('/')
       urlSync().initFromURL()
       expect(sortDirection.value).toBe('asc')
+    })
+
+    it('reads a single meta facet value from URL', async () => {
+      const { selectedMeta, urlSync } = await mountReady('/?meta_scope=backend')
+      urlSync().initFromURL()
+      expect([...(selectedMeta.value.scope ?? [])]).toEqual(['backend'])
+    })
+
+    it('reads multiple meta facet values from URL', async () => {
+      const { selectedMeta, urlSync } = await mountReady('/?meta_scope=backend&meta_scope=api')
+      urlSync().initFromURL()
+      expect([...(selectedMeta.value.scope ?? [])].sort()).toEqual(['api', 'backend'])
+    })
+
+    it('reads match mode from URL', async () => {
+      const { matchMode, urlSync } = await mountReady('/?match=all')
+      urlSync().initFromURL()
+      expect(matchMode.value).toBe('all')
+    })
+
+    it('defaults match mode to any', async () => {
+      const { matchMode, urlSync } = await mountReady('/?meta_scope=backend')
+      urlSync().initFromURL()
+      expect(matchMode.value).toBe('any')
+    })
+
+    it('keeps bookmarked meta values without needing the facet list loaded', async () => {
+      // initFromURL runs before fetchMetaFields resolves; values must not be dropped.
+      const { selectedMeta, urlSync } = await mountReady('/?meta_scope=backend')
+      urlSync().initFromURL()
+      expect(selectedMeta.value.scope?.has('backend')).toBe(true)
     })
   })
 
@@ -148,6 +155,46 @@ describe('useURLSync', () => {
 
       expect(router.currentRoute.value.query.sort).toBeUndefined()
       expect(router.currentRoute.value.query.dir).toBeUndefined()
+    })
+
+    it('writes meta facet selection to URL as meta_<key>', async () => {
+      const { selectedMeta, router, urlSync } = await mountReady('/')
+      selectedMeta.value = { scope: new Set(['backend']) }
+      urlSync().syncToURL()
+      await flushPromises()
+
+      expect(router.currentRoute.value.query.meta_scope).toBe('backend')
+    })
+
+    it('writes match=all only when mode is all', async () => {
+      const { selectedMeta, matchMode, router, urlSync } = await mountReady('/')
+      selectedMeta.value = { scope: new Set(['backend', 'api']) }
+      matchMode.value = 'all'
+      urlSync().syncToURL()
+      await flushPromises()
+
+      expect(router.currentRoute.value.query.match).toBe('all')
+    })
+
+    it('omits match from URL when mode is any', async () => {
+      const { selectedMeta, router, urlSync } = await mountReady('/')
+      selectedMeta.value = { scope: new Set(['backend']) }
+      urlSync().syncToURL()
+      await flushPromises()
+
+      expect(router.currentRoute.value.query.match).toBeUndefined()
+    })
+
+    it('round-trips meta + match through the URL', async () => {
+      const { selectedMeta, matchMode, urlSync } = await mountReady('/')
+      selectedMeta.value = { scope: new Set(['backend', 'api']) }
+      matchMode.value = 'all'
+      urlSync().syncToURL()
+      await flushPromises()
+
+      urlSync().initFromURL()
+      expect([...(selectedMeta.value.scope ?? [])].sort()).toEqual(['api', 'backend'])
+      expect(matchMode.value).toBe('all')
     })
   })
 })

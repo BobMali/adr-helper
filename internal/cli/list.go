@@ -25,12 +25,19 @@ func NewListCmd() *cobra.Command {
 	var jsonOutput bool
 	var search string
 	var count bool
+	var scopes []string
+	var scopeMatch string
 
 	cmd := &cobra.Command{
 		Use:   "list",
 		Short: "List all ADRs",
 		Args:  cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, args []string) error {
+			matchAll, err := parseScopeMatch(scopeMatch)
+			if err != nil {
+				return err
+			}
+
 			cfg, err := adr.LoadConfig(".")
 			if err != nil {
 				return err
@@ -44,6 +51,10 @@ func NewListCmd() *cobra.Command {
 
 			if search != "" {
 				records = adr.FilterByQuery(records, search)
+			}
+
+			if len(scopes) > 0 {
+				records = adr.FilterByMetaField(records, "scope", scopes, matchAll)
 			}
 
 			if count {
@@ -138,5 +149,20 @@ func NewListCmd() *cobra.Command {
 	cmd.Flags().BoolVar(&jsonOutput, "json", false, "output as JSON array")
 	cmd.Flags().StringVarP(&search, "search", "s", "", "filter ADRs by title or number")
 	cmd.Flags().BoolVar(&count, "count", false, "show status counts instead of listing ADRs")
+	cmd.Flags().StringSliceVar(&scopes, "scope", nil, "filter ADRs by scope (repeatable or comma-separated)")
+	cmd.Flags().StringVar(&scopeMatch, "scope-match", "any", "how multiple --scope values combine: any (union) or all (intersection)")
 	return cmd
+}
+
+// parseScopeMatch validates the --scope-match value and reports whether ALL selected
+// scopes must be present (true) versus ANY (false, the default).
+func parseScopeMatch(mode string) (bool, error) {
+	switch mode {
+	case "any":
+		return false, nil
+	case "all":
+		return true, nil
+	default:
+		return false, fmt.Errorf("invalid --scope-match %q: expected \"any\" or \"all\"", mode)
+	}
 }

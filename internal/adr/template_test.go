@@ -122,6 +122,53 @@ func TestValidTemplateNames_IncludesNygardScoped(t *testing.T) {
 	assert.Contains(t, adr.ValidTemplateNames(), "nygard-scoped")
 }
 
+func TestTemplateSections_ExcludesFrontmatterFields(t *testing.T) {
+	// MADR-full declares frontmatter fields (decision-makers, etc.); they must not
+	// leak into the create-form sections, which only handle meta/h2/h3.
+	sections, err := adr.TemplateSections("madr-full")
+	require.NoError(t, err)
+	for _, s := range sections {
+		assert.NotEqual(t, "frontmatter", s.Kind, "frontmatter field %q leaked into form sections", s.Key)
+	}
+}
+
+func TestAllMetaFieldDefs_UnionOfMetaAndFrontmatter(t *testing.T) {
+	defs := adr.AllMetaFieldDefs()
+
+	byKey := make(map[string]adr.TemplateSectionDef)
+	for _, d := range defs {
+		assert.Contains(t, []string{"meta", "frontmatter"}, d.Kind, "unexpected kind %q for %q", d.Kind, d.Key)
+		byKey[d.Key] = d
+	}
+
+	// scope (Kind meta, vocabulary) from nygard-scoped
+	scope, ok := byKey["scope"]
+	require.True(t, ok, "scope facet missing")
+	assert.Equal(t, "meta", scope.Kind)
+	assert.True(t, scope.Vocabulary)
+
+	// frontmatter fields from madr-full
+	for _, key := range []string{"decision-makers", "consulted", "informed"} {
+		d, ok := byKey[key]
+		require.True(t, ok, "frontmatter facet %q missing", key)
+		assert.Equal(t, "frontmatter", d.Kind)
+	}
+}
+
+func TestAllMetaFieldDefs_StableOrderAcrossCalls(t *testing.T) {
+	first := adr.AllMetaFieldDefs()
+	for i := 0; i < 10; i++ {
+		assert.Equal(t, first, adr.AllMetaFieldDefs(), "AllMetaFieldDefs order must be deterministic")
+	}
+}
+
+func TestAllMetaFieldDefs_ReturnsCopy(t *testing.T) {
+	defs := adr.AllMetaFieldDefs()
+	require.NotEmpty(t, defs)
+	defs[0].Key = "mutated"
+	assert.NotEqual(t, "mutated", adr.AllMetaFieldDefs()[0].Key, "AllMetaFieldDefs must return a defensive copy")
+}
+
 func TestTemplateSections_NygardScoped_ScopeFirstAndVocabulary(t *testing.T) {
 	sections, err := adr.TemplateSections("nygard-scoped")
 	require.NoError(t, err)

@@ -1,15 +1,17 @@
 import { mount, flushPromises } from '@vue/test-utils'
 import { createRouter, createMemoryHistory } from 'vue-router'
 import ADRListView from './ADRListView.vue'
-import { fetchADRs, fetchStatuses } from '../api'
+import { fetchADRs, fetchStatuses, fetchMetaFields } from '../api'
 
 vi.mock('../api', () => ({
   fetchADRs: vi.fn(),
   fetchStatuses: vi.fn(),
+  fetchMetaFields: vi.fn(),
 }))
 
 const mockedFetchADRs = fetchADRs as ReturnType<typeof vi.fn>
 const mockedFetchStatuses = fetchStatuses as ReturnType<typeof vi.fn>
+const mockedFetchMetaFields = fetchMetaFields as ReturnType<typeof vi.fn>
 
 function makeRouter() {
   return createRouter({
@@ -37,6 +39,8 @@ afterEach(() => {
 describe('ADRListView', () => {
   beforeEach(() => {
     mockedFetchStatuses.mockResolvedValue(['Accepted', 'Proposed', 'Rejected', 'Deprecated', 'Superseded'])
+    // Default: no metadata facets, so existing tests render only the status/sort groups.
+    mockedFetchMetaFields.mockResolvedValue([])
   })
 
   describe('loading state', () => {
@@ -452,6 +456,181 @@ describe('ADRListView', () => {
 
       expect(wrapper.text()).toContain('No ADRs match the selected filters')
       expect(wrapper.text()).not.toContain('No ADRs match "')
+    })
+  })
+
+  describe('metadata (scope) filtering', () => {
+    const scopedADRs = [
+      { number: 1, title: 'Alpha', status: 'Accepted', date: '2025-01-01', meta: { scope: ['backend', 'api'] } },
+      { number: 2, title: 'Beta', status: 'Accepted', date: '2025-01-02', meta: { scope: ['web'] } },
+      { number: 3, title: 'Gamma', status: 'Accepted', date: '2025-01-03', meta: { scope: ['backend'] } },
+    ]
+
+    beforeEach(() => {
+      mockedFetchADRs.mockResolvedValue(scopedADRs)
+      mockedFetchMetaFields.mockResolvedValue([
+        { key: 'scope', heading: 'Scope', vocabulary: true, values: ['backend', 'api', 'web'] },
+      ])
+    })
+
+    function scopeChips(wrapper: ReturnType<typeof mount>) {
+      return wrapper.find('[aria-label="Filter by Scope"]').findAll('button')
+    }
+
+    // The scope facets live behind a collapsed "More filters" disclosure by default.
+    async function openFilters(wrapper: ReturnType<typeof mount>) {
+      const btn = wrapper.find('[aria-controls="metadata-filters"]')
+      if (btn.exists() && btn.attributes('aria-expanded') === 'false') await btn.trigger('click')
+    }
+
+    // v-show toggles inline display; isVisible() is unreliable in this stack, so read it directly.
+    function panelHidden(wrapper: ReturnType<typeof mount>) {
+      return (wrapper.find('#metadata-filters').element as HTMLElement).style.display === 'none'
+    }
+
+    it('collapses the scope filter behind a "More filters" toggle by default', async () => {
+      const { wrapper } = await mountView()
+      await flushPromises()
+
+      const toggle = wrapper.find('[aria-controls="metadata-filters"]')
+      expect(toggle.exists()).toBe(true)
+      expect(toggle.attributes('aria-expanded')).toBe('false')
+      expect(toggle.text()).toContain('More filters')
+      expect(panelHidden(wrapper)).toBe(true)
+    })
+
+    it('expands the scope filter when the toggle is clicked', async () => {
+      const { wrapper } = await mountView()
+      await flushPromises()
+
+      await openFilters(wrapper)
+
+      expect(wrapper.find('[aria-controls="metadata-filters"]').attributes('aria-expanded')).toBe('true')
+      expect(panelHidden(wrapper)).toBe(false)
+    })
+
+    it('shows an active-filter count on the toggle', async () => {
+      const { wrapper } = await mountView()
+      await flushPromises()
+      await openFilters(wrapper)
+
+      await scopeChips(wrapper).find(b => b.text() === 'backend')!.trigger('click')
+      await flushPromises()
+
+      const toggle = wrapper.find('[aria-controls="metadata-filters"]')
+      expect(toggle.text()).toContain('More filters')
+      expect(toggle.text()).toContain('1')
+    })
+
+    it('auto-expands when a scope filter is active on mount (bookmarked URL)', async () => {
+      const { wrapper } = await mountView('/?meta_scope=backend')
+      await flushPromises()
+
+      // Panel is already open — chips visible without clicking, list filtered.
+      expect(wrapper.find('[aria-controls="metadata-filters"]').attributes('aria-expanded')).toBe('true')
+      expect(panelHidden(wrapper)).toBe(false)
+      expect(wrapper.text()).toContain('Alpha')
+      expect(wrapper.text()).toContain('Gamma')
+      expect(wrapper.text()).not.toContain('Beta')
+    })
+
+    it('renders scope chips from the vocabulary values', async () => {
+      const { wrapper } = await mountView()
+      await flushPromises()
+      await openFilters(wrapper)
+
+      const labels = scopeChips(wrapper).map(b => b.text())
+      expect(labels).toEqual(['backend', 'api', 'web'])
+    })
+
+    it('selecting a scope filters the list (any)', async () => {
+      const { wrapper } = await mountView()
+      await flushPromises()
+      await openFilters(wrapper)
+
+      const web = scopeChips(wrapper).find(b => b.text() === 'web')!
+      await web.trigger('click')
+      await flushPromises()
+
+      expect(wrapper.text()).toContain('Beta')
+      expect(wrapper.text()).not.toContain('Alpha')
+      expect(wrapper.text()).not.toContain('Gamma')
+    })
+
+    it('match toggle only appears once two values are selected', async () => {
+      const { wrapper } = await mountView()
+      await flushPromises()
+      await openFilters(wrapper)
+
+      expect(wrapper.find('[aria-label="Match any or all selected scopes"]').exists()).toBe(false)
+
+      const chips = scopeChips(wrapper)
+      await chips.find(b => b.text() === 'backend')!.trigger('click')
+      await flushPromises()
+      expect(wrapper.find('[aria-label="Match any or all selected scopes"]').exists()).toBe(false)
+
+      await scopeChips(wrapper).find(b => b.text() === 'api')!.trigger('click')
+      await flushPromises()
+      expect(wrapper.find('[aria-label="Match any or all selected scopes"]').exists()).toBe(true)
+    })
+
+    it('switching to All narrows to intersection', async () => {
+      const { wrapper } = await mountView()
+      await flushPromises()
+      await openFilters(wrapper)
+
+      // Select backend + api (Any -> Alpha & Gamma via backend, plus api only on Alpha)
+      await scopeChips(wrapper).find(b => b.text() === 'backend')!.trigger('click')
+      await flushPromises()
+      await scopeChips(wrapper).find(b => b.text() === 'api')!.trigger('click')
+      await flushPromises()
+
+      // Any: Alpha (backend,api) + Gamma (backend)
+      expect(wrapper.text()).toContain('Alpha')
+      expect(wrapper.text()).toContain('Gamma')
+
+      const allBtn = wrapper.find('[aria-label="Match any or all selected scopes"]')
+        .findAll('button').find(b => b.text().includes('All'))!
+      await allBtn.trigger('click')
+      await flushPromises()
+
+      // All: only Alpha has both backend AND api
+      expect(wrapper.text()).toContain('Alpha')
+      expect(wrapper.text()).not.toContain('Gamma')
+    })
+
+    it('renders raw scope values as row badges', async () => {
+      const { wrapper } = await mountView()
+      await flushPromises()
+
+      const alphaRow = wrapper.findAll('li').find(li => li.text().includes('Alpha'))!
+      expect(alphaRow.text()).toContain('backend')
+      expect(alphaRow.text()).toContain('api')
+    })
+
+    it('shows the filter empty state when a scope excludes all results', async () => {
+      mockedFetchMetaFields.mockResolvedValue([
+        { key: 'scope', heading: 'Scope', vocabulary: true, values: ['backend', 'api', 'web', 'mobile'] },
+      ])
+      const { wrapper } = await mountView()
+      await flushPromises()
+      await openFilters(wrapper)
+
+      await scopeChips(wrapper).find(b => b.text() === 'mobile')!.trigger('click')
+      await flushPromises()
+
+      expect(wrapper.text()).toContain('No ADRs match the selected filters')
+    })
+
+    it('scope selection is reflected in the URL as meta_scope', async () => {
+      const { wrapper, router } = await mountView()
+      await flushPromises()
+      await openFilters(wrapper)
+
+      await scopeChips(wrapper).find(b => b.text() === 'backend')!.trigger('click')
+      await flushPromises()
+
+      expect(router.currentRoute.value.query.meta_scope).toBe('backend')
     })
   })
 

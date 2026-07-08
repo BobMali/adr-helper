@@ -1,12 +1,16 @@
 <script setup lang="ts">
 import { ref, computed, watch, onMounted } from 'vue'
 import { RouterLink } from 'vue-router'
-import type { SortField, SortDirection } from '../types'
-import { fetchStatuses } from '../api'
+import type { SortField, SortDirection, MetaField, MetaMatchMode, ADRSummary } from '../types'
+import { fetchStatuses, fetchMetaFields } from '../api'
 import StatusFilterChips from '../components/StatusFilterChips.vue'
+import MetadataFacetFilter from '../components/MetadataFacetFilter.vue'
 import { statusDotClass, statusTextClass } from '../utils/statusColors'
 import { useADRSearch } from '../composables/useADRSearch'
 import { useURLSync } from '../composables/useURLSync'
+
+// Number of scope badges shown on a row before collapsing the rest into "+N".
+const MAX_ROW_BADGES = 3
 
 const STATUS_ORDER: Record<string, number> = {
   proposed: 0, accepted: 1, deprecated: 2, superseded: 3, rejected: 4,
@@ -27,12 +31,73 @@ const availableStatuses = ref<string[]>([])
 const sortField = ref<SortField>('number')
 const sortDirection = ref<SortDirection>('asc')
 
+// Metadata facets. Chip values come from the field's vocabulary (search-independent),
+// like status chips come from the status enum.
+const metaFields = ref<MetaField[]>([])
+const selectedMeta = ref<Record<string, Set<string>>>({})
+const matchMode = ref<MetaMatchMode>('any')
+// The scope facet(s) live behind a collapsible "More filters" disclosure.
+const filtersOpen = ref(false)
+
 const { adrs, loading, error, searchQuery, hasSearchQuery, loadADRs, onSearchInput, clearSearch } = useADRSearch()
-const { syncToURL, initFromURL } = useURLSync(searchQuery, selectedStatuses, sortField, sortDirection)
+const { syncToURL, initFromURL } = useURLSync({
+  searchQuery, selectedStatuses, sortField, sortDirection, selectedMeta, matchMode,
+})
+
+// Only vocabulary fields with values get chip filters (and row badges).
+const vocabularyFacets = computed(() =>
+  metaFields.value.filter(f => f.vocabulary && (f.values?.length ?? 0) > 0),
+)
+const vocabularyKeys = computed(() => new Set(vocabularyFacets.value.map(f => f.key)))
+
+// Badge count: only selections for facets that actually render, so stale meta_* URL
+// params (not validated against the vocabulary) don't inflate the count.
+const activeFilterCount = computed(() =>
+  vocabularyFacets.value.reduce((n, f) => n + (selectedMeta.value[f.key]?.size ?? 0), 0),
+)
+
+function facetSelection(key: string): Set<string> {
+  return selectedMeta.value[key] ?? new Set<string>()
+}
+
+function setFacet(key: string, next: Set<string>) {
+  // Rebuild the Record so the shallow watcher fires (URL sync).
+  const record = { ...selectedMeta.value }
+  if (next.size === 0) {
+    delete record[key]
+  } else {
+    record[key] = next
+  }
+  selectedMeta.value = record
+}
+
+function facetMatches(adr: ADRSummary, key: string, selected: Set<string>): boolean {
+  const present = new Set((adr.meta?.[key] ?? []).map(v => v.toLowerCase()))
+  const wanted = [...selected].map(v => v.toLowerCase())
+  return matchMode.value === 'all'
+    ? wanted.every(w => present.has(w))
+    : wanted.some(w => present.has(w))
+}
+
+function rowBadges(adr: ADRSummary): string[] {
+  if (!adr.meta) return []
+  const out: string[] = []
+  for (const key of vocabularyKeys.value) {
+    for (const v of adr.meta[key] ?? []) out.push(v)
+  }
+  return out
+}
 
 const filteredADRs = computed(() => {
-  if (selectedStatuses.value.size === 0) return adrs.value
-  return adrs.value.filter(adr => selectedStatuses.value.has(adr.status))
+  let list = adrs.value
+  if (selectedStatuses.value.size > 0) {
+    list = list.filter(adr => selectedStatuses.value.has(adr.status))
+  }
+  const activeFacets = Object.entries(selectedMeta.value).filter(([, set]) => set.size > 0)
+  if (activeFacets.length > 0) {
+    list = list.filter(adr => activeFacets.every(([key, set]) => facetMatches(adr, key, set)))
+  }
+  return list
 })
 
 const sortedADRs = computed(() => {
@@ -77,12 +142,23 @@ watch(selectedStatuses, () => {
   syncToURL()
 })
 
+watch([selectedMeta, matchMode], () => {
+  syncToURL()
+})
+
 watch([sortField, sortDirection], () => {
   syncToURL()
 })
 
 onMounted(() => {
   initFromURL()
+
+  // Auto-open the "More filters" panel if a scope filter is already active (e.g. a
+  // bookmarked URL). initFromURL() is synchronous, so selectedMeta is populated here
+  // even though the facet vocabulary (vocabularyFacets) loads async below.
+  if (Object.values(selectedMeta.value).some(s => s.size > 0)) {
+    filtersOpen.value = true
+  }
 
   const q = searchQuery.value.trim()
   loadADRs(q.length >= 2 ? q : undefined)
@@ -93,6 +169,10 @@ onMounted(() => {
       const fromADRs = [...new Set(adrs.value.map(a => a.status))]
       if (fromADRs.length > 0) availableStatuses.value = fromADRs
     })
+
+  fetchMetaFields()
+    .then(f => { metaFields.value = f })
+    .catch(() => { /* facets are optional; leave empty on failure */ })
 })
 </script>
 
@@ -123,6 +203,38 @@ onMounted(() => {
       v-model="selectedStatuses"
       :statuses="availableStatuses"
     />
+  </div>
+
+  <!-- Metadata facet filters (e.g. Scope) behind a collapsible "More filters" disclosure.
+       The body loops all vocabularyFacets, so future facets land here automatically. -->
+  <div v-if="vocabularyFacets.length > 0" class="mb-6">
+    <button
+      type="button"
+      :aria-expanded="filtersOpen"
+      aria-controls="metadata-filters"
+      class="inline-flex items-center gap-1.5 text-sm text-gray-600 dark:text-gray-400 hover:text-gray-900 dark:hover:text-gray-200 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-blue-500"
+      @click="filtersOpen = !filtersOpen"
+    >
+      <span aria-hidden="true" class="text-xs">{{ filtersOpen ? '▾' : '▸' }}</span>
+      More filters
+      <span
+        v-if="activeFilterCount > 0"
+        class="inline-flex items-center justify-center px-1.5 py-0.5 rounded-full text-xs bg-blue-100 dark:bg-blue-900 text-blue-700 dark:text-blue-300"
+      >{{ activeFilterCount }}<span class="sr-only"> active filters</span></span>
+    </button>
+
+    <div v-show="filtersOpen" id="metadata-filters" class="mt-3 flex flex-col gap-4">
+      <MetadataFacetFilter
+        v-for="facet in vocabularyFacets"
+        :key="facet.key"
+        :heading="facet.heading"
+        :values="facet.values ?? []"
+        :model-value="facetSelection(facet.key)"
+        :match-mode="matchMode"
+        @update:model-value="(v) => setFacet(facet.key, v)"
+        @update:match-mode="(m) => (matchMode = m)"
+      />
+    </div>
   </div>
 
   <!-- Sort controls -->
@@ -189,7 +301,7 @@ onMounted(() => {
       No ADRs match the selected filters
     </p>
     <p class="mt-1 text-sm text-gray-400 dark:text-gray-500">
-      {{ adrs.length }} ADR{{ adrs.length === 1 ? '' : 's' }} available — try selecting different statuses or clearing your search.
+      {{ adrs.length }} ADR{{ adrs.length === 1 ? '' : 's' }} available — try selecting different statuses or scopes, or clearing your search.
     </p>
   </div>
 
@@ -219,6 +331,26 @@ onMounted(() => {
 
         <span class="flex-1 min-w-0 truncate text-sm font-medium">
           {{ adr.title }}
+        </span>
+
+        <span
+          v-if="rowBadges(adr).length > 0"
+          class="shrink-0 hidden sm:flex items-center gap-1"
+          aria-hidden="true"
+        >
+          <span
+            v-for="value in rowBadges(adr).slice(0, MAX_ROW_BADGES)"
+            :key="value"
+            class="inline-block px-2 py-0.5 rounded-full text-xs bg-gray-100 dark:bg-gray-800 text-gray-600 dark:text-gray-300"
+          >
+            {{ value }}
+          </span>
+          <span
+            v-if="rowBadges(adr).length > MAX_ROW_BADGES"
+            class="text-xs text-gray-400 dark:text-gray-500"
+          >
+            +{{ rowBadges(adr).length - MAX_ROW_BADGES }}
+          </span>
         </span>
 
         <time

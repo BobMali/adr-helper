@@ -114,6 +114,10 @@ type ADR struct {
 	Status  Status
 	Date    time.Time
 	Content string
+	// Meta holds per-ADR metadata field values keyed by field key (e.g. "scope"),
+	// each a comma-split list of trimmed tokens. Populated from the raw content by
+	// ExtractMetaFields; absent when the ADR carries no recognized metadata.
+	Meta map[string][]string
 }
 
 // New creates a new ADR with the given number and title, defaulting to Proposed status.

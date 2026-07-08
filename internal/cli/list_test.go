@@ -441,3 +441,113 @@ func TestListCmd_RejectsExtraArgs(t *testing.T) {
 	err := root.Execute()
 	assert.Error(t, err)
 }
+
+// --- scope filtering ---
+
+func writeScopedADRs(t *testing.T, dir string) {
+	t.Helper()
+	a := "# 1. Alpha\n\nScope: backend, api\n\n## Status\n\nAccepted\n"
+	b := "# 2. Beta\n\nScope: web\n\n## Status\n\nProposed\n"
+	c := "# 3. Gamma\n\nScope: backend\n\n## Status\n\nAccepted\n"
+	require.NoError(t, os.WriteFile(filepath.Join(dir, "0001-alpha.md"), []byte(a), 0o644))
+	require.NoError(t, os.WriteFile(filepath.Join(dir, "0002-beta.md"), []byte(b), 0o644))
+	require.NoError(t, os.WriteFile(filepath.Join(dir, "0003-gamma.md"), []byte(c), 0o644))
+}
+
+func runList(t *testing.T, args ...string) string {
+	t.Helper()
+	buf := new(bytes.Buffer)
+	root := cli.NewRootCmd()
+	root.SetOut(buf)
+	root.SetArgs(append([]string{"list"}, args...))
+	require.NoError(t, root.Execute())
+	return buf.String()
+}
+
+func TestListCmd_ScopeFilter_Any(t *testing.T) {
+	tmpDir := chdirTemp(t)
+	initWorkspace(t, tmpDir, "docs/adr", "nygard-scoped")
+	writeScopedADRs(t, filepath.Join(tmpDir, "docs/adr"))
+
+	out := runList(t, "--plain", "--scope", "web")
+	assert.Contains(t, out, "Beta")
+	assert.NotContains(t, out, "Alpha")
+	assert.NotContains(t, out, "Gamma")
+}
+
+func TestListCmd_ScopeFilter_MultipleAnyUnion(t *testing.T) {
+	tmpDir := chdirTemp(t)
+	initWorkspace(t, tmpDir, "docs/adr", "nygard-scoped")
+	writeScopedADRs(t, filepath.Join(tmpDir, "docs/adr"))
+
+	out := runList(t, "--plain", "--scope", "web,backend")
+	assert.Contains(t, out, "Alpha")
+	assert.Contains(t, out, "Beta")
+	assert.Contains(t, out, "Gamma")
+}
+
+func TestListCmd_ScopeFilter_All(t *testing.T) {
+	tmpDir := chdirTemp(t)
+	initWorkspace(t, tmpDir, "docs/adr", "nygard-scoped")
+	writeScopedADRs(t, filepath.Join(tmpDir, "docs/adr"))
+
+	out := runList(t, "--plain", "--scope", "backend", "--scope", "api", "--scope-match", "all")
+	assert.Contains(t, out, "Alpha")
+	assert.NotContains(t, out, "Gamma") // has backend but not api
+	assert.NotContains(t, out, "Beta")
+}
+
+func TestListCmd_ScopeFilter_CaseInsensitiveAndLenientUnknown(t *testing.T) {
+	tmpDir := chdirTemp(t)
+	initWorkspace(t, tmpDir, "docs/adr", "nygard-scoped")
+	writeScopedADRs(t, filepath.Join(tmpDir, "docs/adr"))
+
+	out := runList(t, "--plain", "--scope", "BACKEND")
+	assert.Contains(t, out, "Alpha")
+	assert.Contains(t, out, "Gamma")
+
+	// Unknown scope is not an error — it simply matches nothing.
+	buf := new(bytes.Buffer)
+	root := cli.NewRootCmd()
+	root.SetOut(buf)
+	root.SetArgs([]string{"list", "--plain", "--scope", "does-not-exist"})
+	require.NoError(t, root.Execute())
+	assert.NotContains(t, buf.String(), "Alpha")
+}
+
+func TestListCmd_ScopeFilter_JSONReflectsFilter(t *testing.T) {
+	tmpDir := chdirTemp(t)
+	initWorkspace(t, tmpDir, "docs/adr", "nygard-scoped")
+	writeScopedADRs(t, filepath.Join(tmpDir, "docs/adr"))
+
+	out := runList(t, "--json", "--scope", "web")
+	var rows []map[string]any
+	require.NoError(t, json.Unmarshal([]byte(out), &rows))
+	require.Len(t, rows, 1)
+	assert.Equal(t, "Beta", rows[0]["title"])
+}
+
+func TestListCmd_ScopeFilter_CountReflectsFilter(t *testing.T) {
+	tmpDir := chdirTemp(t)
+	initWorkspace(t, tmpDir, "docs/adr", "nygard-scoped")
+	writeScopedADRs(t, filepath.Join(tmpDir, "docs/adr"))
+
+	out := runList(t, "--plain", "--count", "--scope", "backend")
+	assert.Contains(t, out, "Total")
+	assert.Contains(t, out, "2") // Alpha + Gamma
+}
+
+func TestListCmd_ScopeMatch_Invalid(t *testing.T) {
+	tmpDir := chdirTemp(t)
+	initWorkspace(t, tmpDir, "docs/adr", "nygard-scoped")
+	writeScopedADRs(t, filepath.Join(tmpDir, "docs/adr"))
+
+	buf := new(bytes.Buffer)
+	root := cli.NewRootCmd()
+	root.SetOut(buf)
+	root.SetErr(buf)
+	root.SetArgs([]string{"list", "--scope", "backend", "--scope-match", "sometimes"})
+	err := root.Execute()
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "scope-match")
+}

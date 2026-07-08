@@ -1,15 +1,22 @@
 import { watch, nextTick, type Ref } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
-import type { SortField, SortDirection } from '../types'
+import type { SortField, SortDirection, MetaMatchMode } from '../types'
 
 const VALID_SORT_FIELDS = new Set<string>(['number', 'title', 'status'])
 
-export function useURLSync(
-  searchQuery: Ref<string>,
-  selectedStatuses: Ref<Set<string>>,
-  sortField: Ref<SortField>,
-  sortDirection: Ref<SortDirection>,
-) {
+const META_PREFIX = 'meta_'
+
+export interface URLSyncOptions {
+  searchQuery: Ref<string>
+  selectedStatuses: Ref<Set<string>>
+  sortField: Ref<SortField>
+  sortDirection: Ref<SortDirection>
+  selectedMeta: Ref<Record<string, Set<string>>>
+  matchMode: Ref<MetaMatchMode>
+}
+
+export function useURLSync(options: URLSyncOptions) {
+  const { searchQuery, selectedStatuses, sortField, sortDirection, selectedMeta, matchMode } = options
   const route = useRoute()
   const router = useRouter()
 
@@ -24,6 +31,14 @@ export function useURLSync(
     if (selectedStatuses.value.size > 0) {
       const arr = [...selectedStatuses.value]
       q.status = arr.length === 1 ? arr[0]! : arr
+    }
+    for (const [key, set] of Object.entries(selectedMeta.value)) {
+      if (set.size === 0) continue
+      const arr = [...set]
+      q[META_PREFIX + key] = arr.length === 1 ? arr[0]! : arr
+    }
+    if (matchMode.value === 'all') {
+      q.match = 'all'
     }
     if (sortField.value !== 'number') {
       q.sort = sortField.value
@@ -49,6 +64,24 @@ export function useURLSync(
     } else {
       selectedStatuses.value = new Set()
     }
+
+    // Metadata facet selections: any `meta_<key>` param. Values are NOT validated
+    // against the vocabulary — the facet list may not have loaded yet on first paint,
+    // and an unknown value simply won't match anything.
+    const meta: Record<string, Set<string>> = {}
+    for (const [param, value] of Object.entries(query)) {
+      if (!param.startsWith(META_PREFIX)) continue
+      const key = param.slice(META_PREFIX.length)
+      if (!key) continue
+      const arr = Array.isArray(value) ? value : [value]
+      const values = arr.filter((v): v is string => typeof v === 'string')
+      if (values.length > 0) {
+        meta[key] = new Set(values)
+      }
+    }
+    selectedMeta.value = meta
+
+    matchMode.value = query.match === 'all' ? 'all' : 'any'
 
     if (typeof query.q === 'string') {
       searchQuery.value = query.q
