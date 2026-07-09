@@ -27,6 +27,8 @@ func NewListCmd() *cobra.Command {
 	var count bool
 	var scopes []string
 	var scopeMatch string
+	var sortField string
+	var sortOrder string
 
 	cmd := &cobra.Command{
 		Use:   "list",
@@ -34,6 +36,11 @@ func NewListCmd() *cobra.Command {
 		Args:  cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			matchAll, err := parseScopeMatch(scopeMatch)
+			if err != nil {
+				return err
+			}
+
+			desc, err := parseSortOrder(sortOrder)
 			if err != nil {
 				return err
 			}
@@ -55,6 +62,12 @@ func NewListCmd() *cobra.Command {
 
 			if len(scopes) > 0 {
 				records = adr.FilterByMetaField(records, "scope", scopes, matchAll)
+			}
+
+			// Sort the fully-filtered set; one call covers the count/json/table branches.
+			// With --count the order is invisible (it collapses to tallies) but harmless.
+			if err := adr.SortADRs(records, sortField, desc); err != nil {
+				return err
 			}
 
 			if count {
@@ -151,6 +164,8 @@ func NewListCmd() *cobra.Command {
 	cmd.Flags().BoolVar(&count, "count", false, "show status counts instead of listing ADRs")
 	cmd.Flags().StringSliceVar(&scopes, "scope", nil, "filter ADRs by scope (repeatable or comma-separated)")
 	cmd.Flags().StringVar(&scopeMatch, "scope-match", "any", "how multiple --scope values combine: any (union) or all (intersection)")
+	cmd.Flags().StringVar(&sortField, "sort", "number", "sort by field: number, title, status, or date")
+	cmd.Flags().StringVar(&sortOrder, "order", "asc", "sort direction: asc or desc")
 	return cmd
 }
 
@@ -164,5 +179,18 @@ func parseScopeMatch(mode string) (bool, error) {
 		return true, nil
 	default:
 		return false, fmt.Errorf("invalid --scope-match %q: expected \"any\" or \"all\"", mode)
+	}
+}
+
+// parseSortOrder validates the --order value and reports whether the sort is descending.
+// The --sort field name is validated by adr.SortADRs (single source of truth).
+func parseSortOrder(order string) (bool, error) {
+	switch order {
+	case "asc":
+		return false, nil
+	case "desc":
+		return true, nil
+	default:
+		return false, fmt.Errorf("invalid --order %q: expected \"asc\" or \"desc\"", order)
 	}
 }

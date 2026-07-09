@@ -2,7 +2,7 @@ import { watch, nextTick, type Ref } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import type { SortField, SortDirection, MetaMatchMode } from '../types'
 
-const VALID_SORT_FIELDS = new Set<string>(['number', 'title', 'status'])
+const VALID_SORT_FIELDS = new Set<string>(['number', 'title', 'status', 'date'])
 
 const META_PREFIX = 'meta_'
 

@@ -645,6 +645,61 @@ describe('ADRListView', () => {
       mockedFetchADRs.mockResolvedValue(sortTestADRs)
     })
 
+    it('sort by date ascending orders oldest → newest', async () => {
+      const { wrapper } = await mountView()
+      await flushPromises()
+
+      const dateBtn = wrapper.find('[aria-label="Sort options"]').findAll('button').find(b => b.text().includes('Date'))!
+      await dateBtn.trigger('click')
+      await flushPromises()
+
+      const items = wrapper.findAll('li')
+      // #1 2025-01-15, #2 2025-02-01, #3 2025-03-01
+      expect(items[0]!.text()).toContain('#1')
+      expect(items[1]!.text()).toContain('#2')
+      expect(items[2]!.text()).toContain('#3')
+    })
+
+    it('sort by date descending orders newest → oldest', async () => {
+      const { wrapper } = await mountView()
+      await flushPromises()
+
+      const dateBtn = wrapper.find('[aria-label="Sort options"]').findAll('button').find(b => b.text().includes('Date'))!
+      await dateBtn.trigger('click') // asc
+      await dateBtn.trigger('click') // desc
+      await flushPromises()
+
+      const items = wrapper.findAll('li')
+      expect(items[0]!.text()).toContain('#3')
+      expect(items[1]!.text()).toContain('#2')
+      expect(items[2]!.text()).toContain('#1')
+    })
+
+    it('undated ADRs sort last in both directions', async () => {
+      mockedFetchADRs.mockResolvedValue([
+        { number: 1, title: 'Dated early', status: 'Accepted', date: '2025-01-01' },
+        { number: 2, title: 'Undated', status: 'Accepted', date: '' },
+        { number: 3, title: 'Dated late', status: 'Accepted', date: '2025-02-01' },
+      ])
+      const { wrapper } = await mountView()
+      await flushPromises()
+
+      const dateBtn = wrapper.find('[aria-label="Sort options"]').findAll('button').find(b => b.text().includes('Date'))!
+      await dateBtn.trigger('click') // asc
+      await flushPromises()
+      let items = wrapper.findAll('li')
+      expect(items[0]!.text()).toContain('#1')
+      expect(items[1]!.text()).toContain('#3')
+      expect(items[2]!.text()).toContain('#2') // undated last
+
+      await dateBtn.trigger('click') // desc
+      await flushPromises()
+      items = wrapper.findAll('li')
+      expect(items[0]!.text()).toContain('#3')
+      expect(items[1]!.text()).toContain('#1')
+      expect(items[2]!.text()).toContain('#2') // undated STILL last
+    })
+
     it('default sort is number ascending with ID button active', async () => {
       const { wrapper } = await mountView()
       await flushPromises()
@@ -881,6 +936,17 @@ describe('ADRListView', () => {
       await flushPromises()
 
       expect(router.currentRoute.value.query.sort).toBe('title')
+    })
+
+    it('sort by date updates URL to ?sort=date', async () => {
+      const { wrapper, router } = await mountView()
+      await flushPromises()
+
+      const dateBtn = wrapper.find('[aria-label="Sort options"]').findAll('button').find(b => b.text().includes('Date'))!
+      await dateBtn.trigger('click')
+      await flushPromises()
+
+      expect(router.currentRoute.value.query.sort).toBe('date')
     })
   })
 

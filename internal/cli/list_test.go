@@ -551,3 +551,136 @@ func TestListCmd_ScopeMatch_Invalid(t *testing.T) {
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "scope-match")
 }
+
+// --- sorting ---
+
+func writeSortableADRs(t *testing.T, dir string) {
+	t.Helper()
+	// Numbers deliberately not matching date/title/status order.
+	a := "# 1. Banana\n\nDate: 2025-03-01\n\n## Status\n\nRejected\n"
+	b := "# 2. Apple\n\nDate: 2025-01-01\n\n## Status\n\nAccepted\n"
+	c := "# 3. Cherry\n\n## Status\n\nProposed\n" // undated
+	require.NoError(t, os.WriteFile(filepath.Join(dir, "0001-banana.md"), []byte(a), 0o644))
+	require.NoError(t, os.WriteFile(filepath.Join(dir, "0002-apple.md"), []byte(b), 0o644))
+	require.NoError(t, os.WriteFile(filepath.Join(dir, "0003-cherry.md"), []byte(c), 0o644))
+}
+
+// rowOrder returns the ADR titles in the order they appear in table output.
+func rowOrder(out string, titles ...string) []string {
+	type ti struct {
+		title string
+		idx   int
+	}
+	var found []ti
+	for _, tt := range titles {
+		if i := strings.Index(out, tt); i >= 0 {
+			found = append(found, ti{tt, i})
+		}
+	}
+	sort := func() {
+		for i := 1; i < len(found); i++ {
+			for j := i; j > 0 && found[j-1].idx > found[j].idx; j-- {
+				found[j-1], found[j] = found[j], found[j-1]
+			}
+		}
+	}
+	sort()
+	order := make([]string, len(found))
+	for i, f := range found {
+		order[i] = f.title
+	}
+	return order
+}
+
+func TestListCmd_SortByDate_Ascending(t *testing.T) {
+	tmpDir := chdirTemp(t)
+	initWorkspace(t, tmpDir, "docs/adr", "nygard")
+	writeSortableADRs(t, filepath.Join(tmpDir, "docs/adr"))
+
+	out := runList(t, "--plain", "--sort", "date")
+	// Apple (2025-01) < Banana (2025-03) < Cherry (undated, last).
+	assert.Equal(t, []string{"Apple", "Banana", "Cherry"}, rowOrder(out, "Apple", "Banana", "Cherry"))
+}
+
+func TestListCmd_SortByDate_Descending_UndatedStillLast(t *testing.T) {
+	tmpDir := chdirTemp(t)
+	initWorkspace(t, tmpDir, "docs/adr", "nygard")
+	writeSortableADRs(t, filepath.Join(tmpDir, "docs/adr"))
+
+	out := runList(t, "--plain", "--sort", "date", "--order", "desc")
+	// Newest first (Banana, Apple), undated Cherry STILL last.
+	assert.Equal(t, []string{"Banana", "Apple", "Cherry"}, rowOrder(out, "Apple", "Banana", "Cherry"))
+}
+
+func TestListCmd_SortByStatus_LifecycleOrder(t *testing.T) {
+	tmpDir := chdirTemp(t)
+	initWorkspace(t, tmpDir, "docs/adr", "nygard")
+	writeSortableADRs(t, filepath.Join(tmpDir, "docs/adr"))
+
+	out := runList(t, "--plain", "--sort", "status")
+	// Lifecycle: Proposed(Cherry) < Accepted(Apple) < Rejected(Banana) — Rejected last.
+	assert.Equal(t, []string{"Cherry", "Apple", "Banana"}, rowOrder(out, "Apple", "Banana", "Cherry"))
+}
+
+func TestListCmd_SortByTitle_Descending(t *testing.T) {
+	tmpDir := chdirTemp(t)
+	initWorkspace(t, tmpDir, "docs/adr", "nygard")
+	writeSortableADRs(t, filepath.Join(tmpDir, "docs/adr"))
+
+	out := runList(t, "--plain", "--sort", "title", "--order", "desc")
+	assert.Equal(t, []string{"Cherry", "Banana", "Apple"}, rowOrder(out, "Apple", "Banana", "Cherry"))
+}
+
+func TestListCmd_SortByDate_JSONOrder(t *testing.T) {
+	tmpDir := chdirTemp(t)
+	initWorkspace(t, tmpDir, "docs/adr", "nygard")
+	writeSortableADRs(t, filepath.Join(tmpDir, "docs/adr"))
+
+	out := runList(t, "--json", "--sort", "date")
+	var rows []map[string]any
+	require.NoError(t, json.Unmarshal([]byte(out), &rows))
+	require.Len(t, rows, 3)
+	assert.Equal(t, "Apple", rows[0]["title"])
+	assert.Equal(t, "Banana", rows[1]["title"])
+	assert.Equal(t, "Cherry", rows[2]["title"])
+}
+
+func TestListCmd_DefaultSortUnchanged(t *testing.T) {
+	tmpDir := chdirTemp(t)
+	initWorkspace(t, tmpDir, "docs/adr", "nygard")
+	writeSortableADRs(t, filepath.Join(tmpDir, "docs/adr"))
+
+	out := runList(t, "--plain")
+	// No flags → number ascending (existing behavior).
+	assert.Equal(t, []string{"Banana", "Apple", "Cherry"}, rowOrder(out, "Apple", "Banana", "Cherry"))
+}
+
+func TestListCmd_InvalidSortField(t *testing.T) {
+	tmpDir := chdirTemp(t)
+	initWorkspace(t, tmpDir, "docs/adr", "nygard")
+	writeSortableADRs(t, filepath.Join(tmpDir, "docs/adr"))
+
+	buf := new(bytes.Buffer)
+	root := cli.NewRootCmd()
+	root.SetOut(buf)
+	root.SetErr(buf)
+	root.SetArgs([]string{"list", "--sort", "bogus"})
+	err := root.Execute()
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "invalid sort field")
+}
+
+func TestListCmd_InvalidSortOrder(t *testing.T) {
+	tmpDir := chdirTemp(t)
+	initWorkspace(t, tmpDir, "docs/adr", "nygard")
+	writeSortableADRs(t, filepath.Join(tmpDir, "docs/adr"))
+
+	buf := new(bytes.Buffer)
+	root := cli.NewRootCmd()
+	root.SetOut(buf)
+	root.SetErr(buf)
+	root.SetArgs([]string{"list", "--sort", "date", "--order", "sideways"})
+	err := root.Execute()
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "invalid --order")
+}

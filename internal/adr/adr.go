@@ -81,6 +81,27 @@ func (s Status) Category() StatusCategory {
 	}
 }
 
+// LifecycleOrder returns the sort ordinal for a status, following the ADR lifecycle
+// (proposed → accepted → deprecated → superseded → rejected). It intentionally differs
+// from the iota order (which has Rejected before Deprecated/Superseded) and MUST stay in
+// sync with STATUS_ORDER in web/src/views/ADRListView.vue — update both together.
+func (s Status) LifecycleOrder() int {
+	switch s {
+	case Proposed:
+		return 0
+	case Accepted:
+		return 1
+	case Deprecated:
+		return 2
+	case Superseded:
+		return 3
+	case Rejected:
+		return 4
+	default:
+		return 99
+	}
+}
+
 // ParseStatus converts a string to a Status. Returns (status, ok).
 // Case-insensitive, also handles prefixes like "superseded by ...".
 func ParseStatus(s string) (Status, bool) {

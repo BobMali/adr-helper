@@ -24,7 +24,7 @@ export interface TemplateSectionDef {
   vocabulary?: boolean
 }
 
-export type SortField = 'number' | 'title' | 'status'
+export type SortField = 'number' | 'title' | 'status' | 'date'
 export type SortDirection = 'asc' | 'desc'
 
 // How multiple selected values within one metadata facet combine.

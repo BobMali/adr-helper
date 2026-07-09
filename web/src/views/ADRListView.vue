@@ -24,6 +24,7 @@ const SORT_FIELDS = [
   { value: 'number', label: 'ID' },
   { value: 'title', label: 'Title' },
   { value: 'status', label: 'Status' },
+  { value: 'date', label: 'Date' },
 ] as const satisfies readonly { value: SortField; label: string }[]
 
 const selectedStatuses = ref<Set<string>>(new Set())
@@ -108,6 +109,14 @@ const sortedADRs = computed(() => {
       case 'number': return (a.number - b.number) * dir
       case 'title':  return a.title.localeCompare(b.title) * dir
       case 'status': return (statusOrdinal(a.status) - statusOrdinal(b.status)) * dir
+      // Undated ADRs always sort last, independent of direction. Both-dated: a plain
+      // lexicographic compare on the YYYY-MM-DD strings (not localeCompare — these are
+      // structured keys, not locale-aware user text like the title case above).
+      case 'date':
+        if (!a.date && !b.date) return 0
+        if (!a.date) return 1
+        if (!b.date) return -1
+        return (a.date < b.date ? -1 : a.date > b.date ? 1 : 0) * dir
     }
   })
 })
@@ -240,7 +249,7 @@ onMounted(() => {
   <!-- Sort controls -->
   <div class="mb-4 mt-4 flex items-center gap-2">
     <span class="sr-only sm:not-sr-only text-xs text-gray-500 dark:text-gray-400">Sort by:</span>
-    <div role="group" aria-label="Sort options" class="grid grid-cols-3 gap-1 sm:flex sm:gap-1">
+    <div role="group" aria-label="Sort options" class="grid grid-cols-2 gap-1 sm:flex sm:gap-1">
       <button
         v-for="field in SORT_FIELDS"
         :key="field.value"

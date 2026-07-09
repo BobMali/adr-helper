@@ -127,3 +127,23 @@ func (m *mockRepo) List(_ context.Context) ([]adr.ADR, error)      { return nil,
 func (m *mockRepo) Get(_ context.Context, _ int) (*adr.ADR, error) { return nil, nil }
 func (m *mockRepo) Save(_ context.Context, _ *adr.ADR) error       { return nil }
 func (m *mockRepo) NextNumber(_ context.Context) (int, error)      { return 0, nil }
+
+// TestStatus_LifecycleOrder pins the lifecycle sort order. It must match STATUS_ORDER in
+// web/src/views/ADRListView.vue; a drift on either side should fail loudly.
+func TestStatus_LifecycleOrder(t *testing.T) {
+	assert.Equal(t, 0, adr.Proposed.LifecycleOrder())
+	assert.Equal(t, 1, adr.Accepted.LifecycleOrder())
+	assert.Equal(t, 2, adr.Deprecated.LifecycleOrder())
+	assert.Equal(t, 3, adr.Superseded.LifecycleOrder())
+	assert.Equal(t, 4, adr.Rejected.LifecycleOrder())
+
+	// Sequence: proposed < accepted < deprecated < superseded < rejected.
+	lifecycle := []adr.Status{adr.Proposed, adr.Accepted, adr.Deprecated, adr.Superseded, adr.Rejected}
+	for i := 1; i < len(lifecycle); i++ {
+		assert.Less(t, lifecycle[i-1].LifecycleOrder(), lifecycle[i].LifecycleOrder(),
+			"%v should sort before %v", lifecycle[i-1], lifecycle[i])
+	}
+
+	// Intentionally diverges from iota order (Rejected is iota 2 but sorts last).
+	assert.Greater(t, adr.Rejected.LifecycleOrder(), adr.Deprecated.LifecycleOrder())
+}
